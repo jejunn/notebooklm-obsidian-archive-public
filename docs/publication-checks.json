@@ -22,8 +22,11 @@
   "private_capture_tests_included": false,
   "existing_installation_changed": false,
   "commit_author_email": "215496359+jejunn@users.noreply.github.com",
+  "user_reported_verification": [
+    "Safari web app archive button appears and responds to clicks"
+  ],
   "pending_live_verification": [
     "new review conversation PUT to real vault",
-    "Safari web app execution"
+    "Safari web app conversation fetch and Obsidian save"
   ]
 }

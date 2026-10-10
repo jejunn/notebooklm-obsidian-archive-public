@@ -42,7 +42,7 @@ Safari의 NotebookLM 대화를 Obsidian의 `과목/강의번호강.md`에 저장
 4. Safari에서 Userscripts 확장과 NotebookLM 사이트 접근을 허용합니다. 이 용도로는 `notebook.google.com`만 허용하고 다른 웹사이트는 거부해도 됩니다.
 5. 확장 팝업을 한 번 열어 파일을 인식시킨 뒤 NotebookLM 노트북 페이지를 새로고침합니다.
 
-Userscripts 앱 창과 Codex는 계속 켜둘 필요가 없습니다. 실제 저장할 때는 Obsidian과 해당 플러그인이 실행 중이어야 합니다. Safari 웹앱의 확장 지원과 설정은 [Apple 안내](https://support.apple.com/ko-kr/guide/safari/ibrw4a0164a5/mac)를 참고합니다. **이 아카이브의 웹앱 내 조회·저장은 아직 직접 검증하지 않았습니다.**
+Userscripts 앱 창은 계속 켜둘 필요가 없습니다. 실제 저장할 때는 Obsidian과 해당 플러그인이 실행 중이어야 합니다. Safari 웹앱에서도 `NotebookLM archive` 버튼 표시와 클릭 반응을 사용자가 확인했습니다. 웹앱에서 대화를 조회하고 Obsidian에 저장하는 전체 흐름은 아직 확인하지 않았습니다. 확장 지원과 설정은 [Apple 안내](https://support.apple.com/ko-kr/guide/safari/ibrw4a0164a5/mac)를 참고합니다.
 
 ## 저장하기
 
