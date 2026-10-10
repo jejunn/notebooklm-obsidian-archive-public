@@ -1,0 +1,17 @@
+.DS_Store
+node_modules/
+.venv/
+.notebooklm/
+__pycache__/
+artifacts/
+safari-userscripts/
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+storage_state*.json
+cookies*.json
+data.json
+.git.oci-handoff

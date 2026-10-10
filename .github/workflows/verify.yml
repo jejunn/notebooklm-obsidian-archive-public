@@ -1,0 +1,27 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Run portable tests
+        run: bun test
+      - name: Regenerate synthetic fixtures
+        run: bun run tools/generate-test-fixtures.js
+      - name: Build Safari userscript
+        run: bun run build:userscript
+      - name: Check generated files are current
+        run: git diff --exit-code -- fixtures/rpc dist/nbm-archive.user.js

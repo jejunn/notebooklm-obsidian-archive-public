@@ -1,0 +1,11 @@
+{
+  "name": "notebooklm-obsidian-archive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Archive NotebookLM lecture conversations into Obsidian markdown. The ingest core is pure and tested offline; the browser adapter is a separate layer that needs a logged-in Safari.",
+  "scripts": {
+    "test": "bun test",
+    "build:userscript": "bun tools/build-userscript.js"
+  }
+}

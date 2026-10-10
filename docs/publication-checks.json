@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-10",
+  "scope": "public snapshot with synthetic data and no prior Git history",
+  "tests": {
+    "passed": 343,
+    "failed": 0,
+    "skipped": 0,
+    "files": 18,
+    "assertions": 2412
+  },
+  "build": {
+    "bytes": 73250,
+    "sha256": "ba7acac20506df9b4ad8044406f2570d4504fb4676f2146d499c221694493064"
+  },
+  "publication_scan": {
+    "personal_paths": 0,
+    "personal_email_addresses": 0,
+    "original_identifiers": 0,
+    "credential_pattern_findings": 0
+  },
+  "private_history_included": false,
+  "private_capture_tests_included": false,
+  "existing_installation_changed": false,
+  "commit_author_email": "215496359+jejunn@users.noreply.github.com",
+  "pending_live_verification": [
+    "new review conversation PUT to real vault",
+    "Safari web app execution"
+  ]
+}
