@@ -6,12 +6,12 @@ const FENCE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
 // Math cannot pair across a blank paragraph. An unmatched inline $$ in the
 // recorded prose must not hide a whole section until an unrelated equation.
 const PROTECTED = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)|(?<![\\$])(\${1,2})(?!\$)(?:(?!\n[ \t]*\n)[\s\S])*?(?<![\\$])\2(?!\$)/g;
-const MARKER = /[ \t]+\[([1-9]\d*(?:, +[1-9]\d*)*)\](?=[.,:;!?。]|[ \t]*(?:\n|$|\|))/g;
+const MARKER = /[ \t]+\[([1-9]\d*(?:-[1-9]\d*)?(?:, +[1-9]\d*(?:-[1-9]\d*)?)*)\](?=[.,:;!?。]|[ \t]*(?:\n|$|\|))/g;
 const RANGE_LABEL = /(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i;
 
 export function stripSourceMarkers(text) {
   // Numeric reference-link definitions mean these labels have a destination.
-  const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map(match => match[1]));
+  const references = new Set([...text.matchAll(/^[ \t]*\[(\d+(?:-\d+)?)\]:/gm)].map(match => match[1]));
   const lines = text.split('\n');
   const output = [];
   let buffer = [];
@@ -41,7 +41,14 @@ function cleanSegment(text, references) {
   const prose = (part, offset) => part.replace(MARKER, (whole, numbers, index) => {
     const prefix = text.slice(0, offset + index).split('\n').at(-1);
     if (!/\p{L}/u.test(prefix) || prefix.trimEnd().endsWith(']') || RANGE_LABEL.test(prefix)) return whole;
-    if (numbers.split(/, +/).some(number => references.has(number))) return whole;
+    if (numbers.split(/, +/).some(label => {
+      if (references.has(label)) return true;
+      if (!label.includes('-')) return false;
+      // A range can include a linked number between its endpoints. Check the
+      // definitions rather than expanding a potentially very large range.
+      const [start, end] = label.split('-').map(Number);
+      return [...references].some(number => /^\d+$/.test(number) && Number(number) >= start && Number(number) <= end);
+    })) return whole;
     return '';
   });
   let output = '';
