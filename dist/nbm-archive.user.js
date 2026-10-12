@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         nbm-archive
-// @version      0.1.1
+// @version      0.1.2
 // @description  Archive one NotebookLM conversation into an Obsidian vault note
 // @match        https://notebook.google.com/*
 // @inject-into  content
@@ -11,7 +11,7 @@
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 1668 of the bundle below.
+// CONFIG starts at line 1675 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __defProp = Object.defineProperty;
@@ -745,10 +745,10 @@
   // src/citation-cleanup.js
   var FENCE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
   var PROTECTED = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)|(?<![\\$])(\${1,2})(?!\$)(?:(?!\n[ \t]*\n)[\s\S])*?(?<![\\$])\2(?!\$)/g;
-  var MARKER = /[ \t]+\[([1-9]\d*(?:, +[1-9]\d*)*)\](?=[.,:;!?。]|[ \t]*(?:\n|$|\|))/g;
+  var MARKER = /[ \t]+\[([1-9]\d*(?:-[1-9]\d*)?(?:, +[1-9]\d*(?:-[1-9]\d*)?)*)\](?=[.,:;!?。]|[ \t]*(?:\n|$|\|))/g;
   var RANGE_LABEL = /(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i;
   function stripSourceMarkers(text) {
-    const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map((match) => match[1]));
+    const references = new Set([...text.matchAll(/^[ \t]*\[(\d+(?:-\d+)?)\]:/gm)].map((match) => match[1]));
     const lines = text.split(`
 `);
     const output = [];
@@ -784,7 +784,14 @@
 `).at(-1);
       if (!/\p{L}/u.test(prefix) || prefix.trimEnd().endsWith("]") || RANGE_LABEL.test(prefix))
         return whole;
-      if (numbers.split(/, +/).some((number) => references.has(number)))
+      if (numbers.split(/, +/).some((label) => {
+        if (references.has(label))
+          return true;
+        if (!label.includes("-"))
+          return false;
+        const [start, end] = label.split("-").map(Number);
+        return [...references].some((number) => /^\d+$/.test(number) && Number(number) >= start && Number(number) <= end);
+      }))
         return whole;
       return "";
     });
