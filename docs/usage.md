@@ -111,10 +111,11 @@ LaTeX 인라인·블록 구분자를 Obsidian용 `$...$`, `$$...$$`로 정리합
 | Archive 버튼 없음 | 노트북 페이지인지, Userscripts 활성화·사이트 허용·스크립트 활성화 여부, 확장 팝업과 새로고침 |
 | 조회 실패 | NotebookLM 로그인 상태와 질문이 있는 대화. 비공식 RPC 변경 가능성 |
 | 저장 실패 | Obsidian 실행, 플러그인 활성화, API 주소·포트·키·인증서 |
+| `vault read did not complete` | 파일 조회 연결 실패. 인증서의 주소 일치·macOS CA 신뢰·로컬 API 접근 허용을 [HTTPS 설정 안내](https-setup.md)로 확인 |
 | 처음 저장에서 기존 파일 경고 | 같은 노트에 추가하려는 목적이면 복습 추가 선택 |
 | 복습에서 메타데이터 오류 | 처음 저장으로 만든 동일 과목·강의 노트인지 확인. 관리 필드를 임의로 지우지 않음 |
 | 페이지 미지정 경고 | 질문에 한국어 페이지 번호가 명시되어 있는지 확인 |
 | 다른 강의 경고 | 선택한 저장 강의와 질문 내용 확인. 자동 제외·분할되지 않음 |
 | 긴 대화 알림 | 400 turn 요청 후 다음 토큰이 남음. 아직 다중 조회 미지원 |
 
-설치 파일을 교체하면 Userscripts 확장 팝업을 한 번 열고 페이지를 새로고침합니다. 로컬 API의 인증서는 [플러그인 공식 안내](https://github.com/coddingtonbear/obsidian-local-rest-api)에 따라 설정합니다. API 키나 인증서 개인키를 GitHub 이슈·채팅·예제 파일에 넣지 않습니다.
+설치 파일을 교체하면 Userscripts 확장 팝업을 한 번 열고 페이지를 새로고침합니다. 사이트 접근 허용만으로 HTTPS 인증서가 신뢰되지는 않습니다. 주소·포트·CA 설정은 [HTTPS 설정 안내](https-setup.md)를 따릅니다. 로컬 API의 인증서는 [플러그인 공식 안내](https://github.com/coddingtonbear/obsidian-local-rest-api)에 따라 설정합니다. API 키나 인증서 개인키를 GitHub 이슈·채팅·예제 파일에 넣지 않습니다.

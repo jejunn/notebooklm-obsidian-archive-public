@@ -130,6 +130,22 @@ test('network or read-body failure blocks without writing', async () => {
   }
 });
 
+test('failed vault connection gives setup checks without leaking the transport exception', async () => {
+  const h = harness(null, { mode:'first', fetchImpl:async () => {
+    throw new Error('https://private-example.invalid/?key=do-not-display');
+  } });
+  const result = await h.run();
+  expect(result.ok).toBe(false);
+  expect(result.reason).toContain('Obsidian');
+  expect(result.reason).toContain('HTTPS');
+  expect(result.reason).toContain('인증서');
+  expect(result.reason).toContain('접근 허용');
+  expect(result.reason).not.toContain('private-example');
+  expect(result.reason).not.toContain('do-not-display');
+  expect(h.requests.map(r=>r.method)).toEqual(['GET']);
+  expect(h.approvals).toHaveLength(0);
+});
+
 test.each([['existing', base], ['absent', null]])('changed %s target before PUT blocks', async (_, initial) => {
   let reads = 0;
   const h = harness(initial, { mode:initial===null?'first':'review', fetchImpl: async (_, request) => {

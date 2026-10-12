@@ -23,8 +23,8 @@
 
 import { CoreHardError } from './ingest-core.js';
 
-/** The HTTPS origin; the default port 27124 was already taken (design spec 16). */
-export const VAULT_ORIGIN = 'https://localhost:27125';
+/** Use the certificate's loopback IP; port 27125 was verified locally (default: 27124). */
+export const VAULT_ORIGIN = 'https://127.0.0.1:27125';
 
 /** The only status that means the vault accepted the file (contract 6.4). */
 export const VAULT_SUCCESS_STATUS = 204;

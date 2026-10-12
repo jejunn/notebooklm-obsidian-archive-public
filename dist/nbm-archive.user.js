@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         nbm-archive
-// @version      0.1.0
+// @version      0.1.1
 // @description  Archive one NotebookLM conversation into an Obsidian vault note
 // @match        https://notebook.google.com/*
 // @inject-into  content
@@ -11,7 +11,7 @@
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 1667 of the bundle below.
+// CONFIG starts at line 1668 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __defProp = Object.defineProperty;
@@ -1426,7 +1426,7 @@
   }
 
   // src/vault-writer.js
-  var VAULT_ORIGIN = "https://localhost:27125";
+  var VAULT_ORIGIN = "https://127.0.0.1:27125";
   var VAULT_SUCCESS_STATUS = 204;
   function buildVaultUrl(vaultPath, origin = VAULT_ORIGIN) {
     if (typeof vaultPath !== "string" || vaultPath.trim().length === 0) {
@@ -1508,7 +1508,8 @@
         throw new Error("non-text response");
       return { ok: true, content, status: 200, url };
     } catch {
-      return { ok: false, status: 0, url, reason: "vault read did not complete" };
+      return { ok: false, status: 0, url, reason: `vault read did not complete — Obsidian 파일 조회 연결이 완료되지 않았습니다.
+` + "Obsidian 실행, HTTPS 주소·포트와 인증서의 주소 일치, macOS CA 인증서 신뢰, " + "Userscripts의 NotebookLM 및 로컬 API 사이트 접근 허용을 확인하세요." };
     }
   }
   async function saveArchive(options) {
@@ -1685,7 +1686,7 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
     lecture: 2,
     limit: 400,
     sourceLabel: "[예제 과목] 강의자료",
-    vaultOrigin: "https://localhost:27125",
+    vaultOrigin: VAULT_ORIGIN,
     dryRun: true
   };
   function setConfig(overrides = {}) {

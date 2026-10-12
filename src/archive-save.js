@@ -17,7 +17,10 @@ export async function readVaultFile({ path, apiKey, origin, fetchImpl }) {
     return { ok: true, content, status: 200, url };
   } catch {
     // Do not include transport exceptions: they can contain credential-bearing URLs.
-    return { ok: false, status: 0, url, reason: 'vault read did not complete' };
+    return { ok: false, status: 0, url, reason:
+      'vault read did not complete — Obsidian 파일 조회 연결이 완료되지 않았습니다.\n' +
+      'Obsidian 실행, HTTPS 주소·포트와 인증서의 주소 일치, macOS CA 인증서 신뢰, ' +
+      'Userscripts의 NotebookLM 및 로컬 API 사이트 접근 허용을 확인하세요.' };
   }
 }
 
