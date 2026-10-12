@@ -614,7 +614,7 @@ describe('the Vault write (contract 6.4)', () => {
 
   test('the /vault/ prefix is present exactly once', () => {
     expect(buildVaultUrl('강의/1강.md')).toBe(
-      'https://localhost:27125/vault/%EA%B0%95%EC%9D%98/1%EA%B0%95.md'
+      'https://127.0.0.1:27125/vault/%EA%B0%95%EC%9D%98/1%EA%B0%95.md'
     );
     expect(buildVaultUrl('vault/강의/1강.md')).toBe(buildVaultUrl('강의/1강.md'));
     expect(buildVaultUrl('/강의/1강.md')).toBe(buildVaultUrl('강의/1강.md'));

@@ -14,6 +14,7 @@ import { collectConversation, describeFailure } from './userscript-entry.js';
 import { runValidationPipeline } from './validation-output.js';
 import { formatTimestamp } from './markdown-assembler.js';
 import { saveArchive } from './archive-save.js';
+import { VAULT_ORIGIN } from './vault-writer.js';
 import { findConversationCandidate, notebookIdFromUrl } from './conversation-selection.js';
 import { requestSaveOptions, validateSaveOptions } from './archive-options.js';
 
@@ -35,7 +36,7 @@ export const CONFIG = {
   lecture: 2,
   limit: 400,                // 400 turn items, roughly 200 question/answer pairs
   sourceLabel: '[예제 과목] 강의자료',
-  vaultOrigin: 'https://localhost:27125',
+  vaultOrigin: VAULT_ORIGIN,
   // Initial value of the dialog's validation-only checkbox. Uncheck it there
   // to save; editing this file is not required.
   dryRun: true,

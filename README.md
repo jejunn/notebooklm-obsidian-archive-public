@@ -36,13 +36,14 @@ Safari의 NotebookLM 대화를 Obsidian의 `과목/강의번호강.md`에 저장
 
 확인한 조합은 macOS의 Safari 26.6.2, [Userscripts](https://github.com/quoid/userscripts) 4.8.6, Obsidian 1.14.4, [Local REST API with MCP](https://github.com/coddingtonbear/obsidian-local-rest-api) 5.3.1입니다. 다른 환경의 호환성을 보장하지 않습니다.
 
-1. Obsidian에서 Local REST API 플러그인의 HTTPS API, API 키, 로컬 인증서를 설정합니다.
-2. API 주소를 확인합니다. 이 스크립트는 기존 검증 환경의 `https://localhost:27125`를 사용합니다. **플러그인 공식 예시는 `https://127.0.0.1:27124`이므로** 주소·포트·인증서 이름을 자신의 환경에 맞춰야 합니다. 변경이 필요하면 `src/userscript-main.js`의 `vaultOrigin`을 수정하고 다시 빌드합니다.
-3. `dist/nbm-archive.user.js`를 Userscripts의 저장 폴더에 복사합니다.
-4. Safari에서 Userscripts 확장과 NotebookLM 사이트 접근을 허용합니다. 이 용도로는 `notebook.google.com`만 허용하고 다른 웹사이트는 거부해도 됩니다.
-5. 확장 팝업을 한 번 열어 파일을 인식시킨 뒤 NotebookLM 노트북 페이지를 새로고침합니다.
+1. Obsidian에서 Local REST API 플러그인의 HTTPS API를 활성화하고 API 키·포트를 확인합니다.
+2. 스크립트 기본 주소는 `https://127.0.0.1:27125`입니다. **플러그인 공식 기본 포트는 27124**이므로 자신의 설정과 맞춥니다. 변경할 때는 `src/vault-writer.js`의 `VAULT_ORIGIN`을 수정하고 다시 빌드합니다.
+3. 플러그인의 공개 CA 인증서를 macOS 키체인에 가져오고 SSL 신뢰를 설정합니다. 사이트 접근 허용과는 별도입니다. [HTTPS 설정과 문제 해결](docs/https-setup.md)
+4. `dist/nbm-archive.user.js`를 Userscripts의 저장 폴더에 복사합니다.
+5. Safari에서 Userscripts 확장과 **NotebookLM 사이트 및 로컬 API 주소** 양쪽의 접근을 허용합니다. 모든 웹사이트를 허용할 필요는 없습니다.
+6. 확장 팝업을 한 번 열어 파일을 인식시킨 뒤 NotebookLM 노트북 페이지를 새로고침합니다. 인증서 신뢰를 변경했다면 Safari와 웹앱을 완전히 종료했다가 다시 엽니다.
 
-Userscripts 앱 창은 계속 켜둘 필요가 없습니다. 실제 저장할 때는 Obsidian과 해당 플러그인이 실행 중이어야 합니다. Safari 웹앱에서도 `NotebookLM archive` 버튼 표시와 클릭 반응을 사용자가 확인했습니다. 웹앱에서 대화를 조회하고 Obsidian에 저장하는 전체 흐름은 아직 확인하지 않았습니다. 확장 지원과 설정은 [Apple 안내](https://support.apple.com/ko-kr/guide/safari/ibrw4a0164a5/mac)를 참고합니다.
+Userscripts 앱 창은 계속 켜둘 필요가 없습니다. 실제 저장할 때는 Obsidian과 해당 플러그인이 실행 중이어야 합니다. 2026-10-12 주소·권한·CA 신뢰를 설정한 뒤 사용자가 정상 동작을 보고했습니다. 환경별 PUT 응답과 결과 파일을 다시 측정한 검증과는 구분합니다. [검증 기록](docs/validation.md). 확장 지원과 설정은 [Apple 안내](https://support.apple.com/ko-kr/guide/safari/ibrw4a0164a5/mac)를 참고합니다.
 
 ## 저장하기
 
@@ -71,12 +72,13 @@ bun run tools/generate-test-fixtures.js
 bun run build:userscript
 ```
 
-Bun 1.4.2를 사용했으며 별도의 npm 의존성은 없습니다. 공개본은 **343개 합성 데이터 테스트**를 제공합니다. 비공개 원본의 측정값에만 의존하던 테스트 4개는 공개본에 포함하지 않습니다. GitHub Actions에서 테스트·예제 재생성·빌드와 생성 파일 일치를 확인합니다.
+Bun 1.4.2를 사용했으며 별도의 npm 의존성은 없습니다. 공개본은 **344개 합성 데이터 테스트**를 제공합니다. 비공개 원본의 측정값에만 의존하던 테스트 4개는 공개본에 포함하지 않습니다. GitHub Actions에서 테스트·예제 재생성·빌드와 생성 파일 일치를 확인합니다.
 
-기존 Mac 환경에서 최초 실제 저장, 대화 조회, 수식 표시, 출처 표기 정리, 기존 노트 보존과 중복 무변경을 확인했습니다. **새 복습 대화를 실제 Obsidian 노트에 쓰는 최종 실사용 검증은 아직 남아 있습니다.** 새 복습 추가는 합성 데이터와 모의 API로 검증했습니다. 공개용 변경 후에는 예제 과목과 식별자를 교체했으며 사용자의 기존 설치 파일은 변경하지 않았습니다. [검증 기록](docs/validation.md)
+기존 Mac 환경에서 최초 실제 저장, 대화 조회, 수식 표시, 출처 표기 정리, 기존 노트 보존과 중복 무변경을 확인했습니다. **새 복습 대화를 실제 Obsidian 노트에 쓰는 최종 실사용 검증은 아직 남아 있습니다.** 새 복습 추가는 합성 데이터와 모의 API로 검증했습니다. 2026-10-10 공개 스냅샷에서는 예제 과목과 식별자를 교체했습니다. 이후 HTTPS 수정은 0.1.1 소스와 설치 빌드에 반영했습니다. [검증 기록](docs/validation.md)
 
 ## 문서와 파일
 
+- [HTTPS 설정](docs/https-setup.md): 주소·포트, macOS CA 신뢰, 확장 접근 권한과 연결 오류
 - [사용 안내](docs/usage.md): 질문 서식, 첫 저장·복습 흐름, 미리보기, 문제 해결
 - [설계와 저장 계약](docs/design.md): 모듈, 메타데이터, 중복 방지, 기존 노트 보존
 - [검증 기록](docs/validation.md): 확인한 내용과 아직 확인하지 않은 내용
