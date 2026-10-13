@@ -22,7 +22,8 @@ import { requestSaveOptions, validateSaveOptions } from './archive-options.js';
 // Defaults for the options dialog and injected test runs. The browser reads
 // the notebook from its URL, fetches a recent conversation candidate, and asks
 // the user to confirm its first and last questions before accessing the vault.
-// Course, lecture, and save mode are explicit choices in the dialog.
+// The dialog suggests the course from the current notebook title's brackets.
+// Lecture starts blank; course, lecture, and save mode are confirmed there.
 //
 // The API key is deliberately left blank here and asked for at run time. A key
 // typed into a script file ends up in the extension's storage and in any copy
@@ -32,10 +33,10 @@ import { requestSaveOptions, validateSaveOptions } from './archive-options.js';
 export const CONFIG = {
   notebookId: '00000000-0000-4000-8000-000000000004',
   conversationId: '00000000-0000-4000-8000-000000000002',
-  course: '예제 과목',
-  lecture: 2,
+  course: '',
+  lecture: null,
   limit: 400,                // 400 turn items, roughly 200 question/answer pairs
-  sourceLabel: '[예제 과목] 강의자료',
+  sourceLabel: '',
   vaultOrigin: VAULT_ORIGIN,
   // Initial value of the dialog's validation-only checkbox. Uncheck it there
   // to save; editing this file is not required.

@@ -11,7 +11,7 @@
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 1675 of the bundle below.
+// CONFIG starts at line 1683 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __defProp = Object.defineProperty;
@@ -1623,13 +1623,21 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
   }
 
   // src/archive-options.js
+  function validCourseName(course) {
+    return Boolean(course) && course !== "." && course !== ".." && !/[\\/\u0000-\u001f]/.test(course);
+  }
+  function courseFromNotebookTitle(title) {
+    const match = String(title ?? "").match(/^\s*\[([^\[\]]+)\][^\[\]]*$/);
+    const course = match?.[1].trim() ?? "";
+    return validCourseName(course) ? course : "";
+  }
   function validateSaveOptions(options) {
     const course = String(options.course ?? "").trim();
     const lecture = Number(options.lecture);
     if (!SAVE_MODES.includes(options.mode))
       throw new Error("처음 저장 또는 복습 추가를 선택하세요.");
-    if (!course || course === "." || course === ".." || /[\\/\u0000-\u001f]/.test(course))
-      throw new Error("과목명에는 경로 구분자나 줄바꿈을 넣을 수 없습니다.");
+    if (!validCourseName(course))
+      throw new Error("과목명을 입력하세요. 경로 구분자나 줄바꿈은 넣을 수 없습니다.");
     if (!Number.isSafeInteger(lecture) || lecture < 1)
       throw new Error("강의 번호는 1 이상의 정수로 입력하세요.");
     return { mode: options.mode, course, lecture, dryRun: Boolean(options.dryRun) };
@@ -1642,8 +1650,8 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
       dialog.innerHTML = `<form style="display:grid;gap:16px">
       <h2 style="font-size:20px;margin:0">NotebookLM 아카이브</h2>
       <p style="margin:0">현재 과목과 저장할 강의를 확인하세요.</p>
-      <label>과목명 <input name="course" required style="display:block;width:95%;margin-top:6px;padding:8px"></label>
-      <label>강의 번호 <input name="lecture" type="number" min="1" step="1" required style="display:block;width:95%;margin-top:6px;padding:8px"></label>
+      <label>과목명 <input name="course" required placeholder="노트북 제목의 [과목명] 또는 직접 입력" style="display:block;width:95%;margin-top:6px;padding:8px"></label>
+      <label>강의 번호 <input name="lecture" type="number" min="1" step="1" required placeholder="저장할 강의 번호를 직접 입력" style="display:block;width:95%;margin-top:6px;padding:8px"></label>
       <label><input name="dryRun" type="checkbox"> 검증만 실행 (Obsidian에 저장하지 않음)</label>
       <p role="alert" style="color:#b00020;margin:0"></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1654,8 +1662,8 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
       <p style="font-size:13px;margin:0">처음 저장은 새 강의 파일을 만듭니다. 복습 추가는 기존 강의 끝에 질문을 덧붙입니다.</p>
     </form>`;
       const form = dialog.querySelector("form");
-      form.elements.course.value = defaults.course;
-      form.elements.lecture.value = defaults.lecture;
+      form.elements.course.value = courseFromNotebookTitle(document2.title);
+      form.elements.lecture.value = "";
       form.elements.dryRun.checked = defaults.dryRun;
       const finish = (value) => {
         dialog.close();
@@ -1689,10 +1697,10 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
   var CONFIG = {
     notebookId: "00000000-0000-4000-8000-000000000004",
     conversationId: "00000000-0000-4000-8000-000000000002",
-    course: "예제 과목",
-    lecture: 2,
+    course: "",
+    lecture: null,
     limit: 400,
-    sourceLabel: "[예제 과목] 강의자료",
+    sourceLabel: "",
     vaultOrigin: VAULT_ORIGIN,
     dryRun: true
   };
