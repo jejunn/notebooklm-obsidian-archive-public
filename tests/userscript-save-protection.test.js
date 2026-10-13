@@ -12,7 +12,7 @@ test('installed default is 400', () => {
 });
 
 test('main sends 400 then leaves synthetic archived content untouched', async () => {
-  setConfig({ ...defaults, dryRun: false, limit: 400 });
+  setConfig({ ...defaults, course: '예제 과목', lecture: 2, dryRun: false, limit: 400 });
   const payload = JSON.stringify([synthetic]);
   const frame = JSON.stringify([['wrb.fr', 'khqZz', payload, null, null, null, 'generic']]);
   const calls = [];

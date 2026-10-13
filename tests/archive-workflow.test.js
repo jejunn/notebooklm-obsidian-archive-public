@@ -8,7 +8,7 @@ const html=`<script>window.WIZ_global_data={"SNlM0e":"${'a'.repeat(42)}","FdrFJe
 test('partial collection shows an alert and never prompts for vault access',async()=>{
   const alerts=[];const calls=[];
   const result=JSON.parse(await runArchive({html,href:`https://notebook.google.com/notebook/${CONFIG.notebookId}`,
-    mode:'first',dryRun:false,notify:m=>alerts.push(m),confirm:()=>{throw new Error('must not confirm');},
+    mode:'first',course:'예제 과목',lecture:2,dryRun:false,notify:m=>alerts.push(m),confirm:()=>{throw new Error('must not confirm');},
     promptForApiKey:()=>{throw new Error('must not request key');},
     fetchImpl:async(_,r)=>{calls.push(r.method);return{ok:true,status:200,text:async()=>frame('khqZz',[synthetic,'NEXT'])};}}));
   expect(result.step).toBe('PARTIAL');expect(calls).toEqual(['POST']);
@@ -43,7 +43,7 @@ test('main review mode appends a new conversation after confirmation and repeate
   rows[0][0]='new-answer';rows[1][0]='new-question';
   const requests=[];const previews=[];
   const options={html,href:`https://notebook.google.com/notebook/${CONFIG.notebookId}`,
-    mode:'review',conversationId:'new-review-chat',dryRun:false,notify:()=>{},
+    mode:'review',course:'예제 과목',lecture:2,conversationId:'new-review-chat',dryRun:false,notify:()=>{},
     confirm:m=>{previews.push(m);return true;},promptForApiKey:()=> 'test-key',
     fetchImpl:async(_,r)=>{requests.push(r.method);
       if(r.method==='GET')return{status:200,text:async()=>existing};
