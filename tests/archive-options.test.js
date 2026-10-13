@@ -21,12 +21,12 @@ function dialogPage(title) {
     elements, alert, submit: () => listeners.submit({ preventDefault() {}, submitter: { value: 'first' } }) };
 }
 
-const legacyDefaults = { course: '태양전지공학', lecture: 2, dryRun: true };
+const legacyDefaults = { course: '이전 과목', lecture: 2, dryRun: true };
 
 test('dialog uses the bracketed notebook course instead of a configured course', () => {
   for (const [title, course] of [
-    ['[화성암석학] 강의자료 - Gemini Notebook', '화성암석학'],
-    ['  [ 태양전지공학 ] 강의자료 - NotebookLM', '태양전지공학'],
+    ['[예제 과목] 강의자료 - Gemini Notebook', '예제 과목'],
+    ['  [ 다른 과목 ] 강의자료 - NotebookLM', '다른 과목'],
   ]) {
     const page = dialogPage(title);
     requestSaveOptions(page.document, legacyDefaults);
@@ -37,8 +37,8 @@ test('dialog uses the bracketed notebook course instead of a configured course',
 
 test('missing, malformed, ambiguous, or unsafe notebook courses leave the field blank', () => {
   for (const title of [undefined, '', '강의자료 - Gemini Notebook', '[] 강의자료', '[ ] 강의자료',
-    '[화성암석학 강의자료', '[2026][화성암석학] 강의자료', '[[화성암석학]] 강의자료',
-    '[화성암석학/실험] 강의자료', '[..] 강의자료']) {
+    '[예제 과목 강의자료', '[2026][예제 과목] 강의자료', '[[예제 과목]] 강의자료',
+    '[예제 과목/실험] 강의자료', '[..] 강의자료']) {
     const page = dialogPage(title);
     requestSaveOptions(page.document, legacyDefaults);
     expect(page.elements.course.value).toBe('');
@@ -46,18 +46,18 @@ test('missing, malformed, ambiguous, or unsafe notebook courses leave the field 
 });
 
 test('each dialog opens with a blank lecture and requires manual entry before saving', async () => {
-  const page = dialogPage('[화성암석학] 강의자료');
+  const page = dialogPage('[예제 과목] 강의자료');
   const result = requestSaveOptions(page.document, legacyDefaults);
   expect(page.elements.lecture.value).toBe('');
   page.submit();
   expect(page.alert.textContent).toContain('강의 번호');
   page.elements.lecture.value = '3';
   page.submit();
-  expect(await result).toEqual({ mode: 'first', course: '화성암석학', lecture: 3, dryRun: true });
+  expect(await result).toEqual({ mode: 'first', course: '예제 과목', lecture: 3, dryRun: true });
 
-  page.document.title = '[구조지질학] 강의자료';
+  page.document.title = '[다른 과목] 강의자료';
   requestSaveOptions(page.document, legacyDefaults);
-  expect(page.elements.course.value).toBe('구조지질학');
+  expect(page.elements.course.value).toBe('다른 과목');
   expect(page.elements.lecture.value).toBe('');
 });
 test('two explicit modes accept a confirmed course and positive lecture', () => {
