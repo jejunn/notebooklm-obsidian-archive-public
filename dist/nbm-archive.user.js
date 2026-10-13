@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         nbm-archive
-// @version      0.1.2
+// @version      0.1.3
 // @description  Archive one NotebookLM conversation into an Obsidian vault note
 // @match        https://notebook.google.com/*
 // @inject-into  content
