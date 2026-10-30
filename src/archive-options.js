@@ -57,3 +57,36 @@ export function requestSaveOptions(document, defaults) {
     dialog.showModal();
   });
 }
+
+// One dialog for all questions whose distinct referenced pages need a choice.
+// User-supplied text is assigned through textContent, never interpreted as HTML.
+export function requestPageChoices(document, questions) {
+  if (!questions.length) return Promise.resolve({});
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('aria-label', '대표 페이지 선택');
+    dialog.style.cssText = 'max-width:720px;width:calc(100% - 48px);max-height:85vh;overflow:auto;padding:24px;border:1px solid #bbb;border-radius:12px;background:#fff;color:#222;z-index:2147483647;font:15px system-ui;';
+    const form = document.createElement('form');
+    const heading = document.createElement('h2'); heading.textContent = '복수 페이지 질문의 대표 페이지 선택'; form.appendChild(heading);
+    const help = document.createElement('p'); help.textContent = '각 질문을 묶을 페이지를 선택하세요. 첫 번째로 언급된 페이지가 기본 선택입니다.'; form.appendChild(help);
+    const selects = [];
+    for (const question of questions) {
+      const section = document.createElement('section');
+      const text = document.createElement('pre'); text.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;'; text.textContent = `질문: ${question.text}`; section.appendChild(text);
+      const details = document.createElement('details');
+      const summary = document.createElement('summary'); summary.textContent = '답변 보기'; details.appendChild(summary);
+      const answer = document.createElement('pre'); answer.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;'; answer.textContent = question.answer ?? '(답변 없음)'; details.appendChild(answer); section.appendChild(details);
+      const label = document.createElement('label'); label.textContent = '대표 페이지: ';
+      const select = document.createElement('select');
+      for (const page of question.pages) { const option=document.createElement('option'); option.value=String(page); option.textContent=`${page}페이지`; select.appendChild(option); }
+      label.appendChild(select); section.appendChild(label); form.appendChild(section); selects.push(select);
+    }
+    const submit = document.createElement('button'); submit.type='submit'; submit.textContent='선택 완료'; form.appendChild(submit);
+    const cancel = document.createElement('button'); cancel.type='button'; cancel.textContent='취소'; form.appendChild(cancel);
+    const finish = value => { dialog.close(); dialog.remove(); resolve(value); };
+    form.addEventListener('submit', event => { event.preventDefault(); const choices=Object.create(null); questions.forEach((q,i)=>{choices[q.id]=Number(selects[i].value);}); finish(choices); });
+    cancel.addEventListener('click', () => finish(null));
+    dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
+    dialog.appendChild(form); document.body.appendChild(dialog); dialog.showModal();
+  });
+}

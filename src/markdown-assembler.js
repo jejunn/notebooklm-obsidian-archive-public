@@ -428,7 +428,7 @@ export function renderPageHeading(page, placement) {
  */
 export function assembleFirstArchive(turns, meta) {
   const offsetMinutes = meta.offsetMinutes ?? DEFAULT_UT_OFFSET_MINUTES;
-  const { groups } = runPageStateMachine(turns);
+  const { groups } = runPageStateMachine(turns, { pageChoices: meta.pageChoices });
   const archivedDate = meta.archivedDate ?? meta.archived;
 
   const blocks = [
@@ -489,7 +489,7 @@ export function assembleReviewSession(turns, options) {
     throw new CoreHardError(`review session date must be YYYY-MM-DD: ${date} (spec 13.1)`);
   }
 
-  const { groups } = runPageStateMachine(turns, { initialPage: options.initialPage ?? null });
+  const { groups } = runPageStateMachine(turns, { initialPage: options.initialPage ?? null, pageChoices: options.pageChoices });
 
   const blocks = [];
   if (includeSection) blocks.push('## 추가 질문');

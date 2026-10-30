@@ -16,7 +16,8 @@ import { formatTimestamp } from './markdown-assembler.js';
 import { saveArchive } from './archive-save.js';
 import { VAULT_ORIGIN } from './vault-writer.js';
 import { findConversationCandidate, notebookIdFromUrl } from './conversation-selection.js';
-import { requestSaveOptions, validateSaveOptions } from './archive-options.js';
+import { requestSaveOptions, validateSaveOptions, requestPageChoices } from './archive-options.js';
+import { extractPageReference } from './ingest-core.js';
 
 // ---------------------------------------------------------------------------
 // Defaults for the options dialog and injected test runs. The browser reads
@@ -83,6 +84,7 @@ export async function runArchive({
   promptForApiKey = typeof window === 'undefined' ? () => null : window.prompt.bind(window),
   notify = typeof window === 'undefined' ? () => {} : window.alert.bind(window),
   mode,
+  resolvePages = typeof document === 'undefined' ? async () => null : questions => requestPageChoices(document, questions),
   notebookId = CONFIG.notebookId,
   conversationId = CONFIG.conversationId,
   course = CONFIG.course,
@@ -142,11 +144,30 @@ export async function runArchive({
     });
   }
 
+  const ambiguous = collected.turns.flatMap((turn, index) => {
+    if (turn.kind !== 'question') return [];
+    const pages = [...new Set(extractPageReference(turn.text).pages)];
+    if (pages.length < 2) return [];
+    const next = collected.turns[index + 1];
+    return [{ id: turn.id, text: turn.text, answer: next?.kind === 'answer' ? next.text : null, pages }];
+  });
+  let pageChoices = {};
+  if (ambiguous.length) {
+    pageChoices = await resolvePages(ambiguous);
+    if (pageChoices === null) return report({ step: 'CANCELLED', verdict: 'CANCELLED', reason: 'page selection cancelled' });
+    if (!pageChoices || typeof pageChoices !== 'object' || ambiguous.some(q => !Object.hasOwn(pageChoices, q.id) || !q.pages.includes(pageChoices[q.id]))) {
+      notify('대표 페이지 선택이 올바르지 않아 저장을 중단했습니다.');
+      return report({ step: 'BLOCKED', verdict: 'INVALID_PAGE_SELECTION' });
+    }
+  }
+
   const vaultPath = `${cfg.course}/${cfg.lecture}강.md`;
   let approved = false;
 
   const pipeline = await runValidationPipeline({
     turns: collected.turns,
+    pageChoices,
+    dryRun: cfg.dryRun,
     course: cfg.course,
     lecture: cfg.lecture,
     selectedLecture: cfg.lecture,
@@ -190,6 +211,7 @@ export async function runArchive({
         mode: cfg.mode,
         path: vaultPath,
         turns: collected.turns,
+        pageChoices,
         course: cfg.course,
         lecture: cfg.lecture,
         conversationId: cfg.conversationId,

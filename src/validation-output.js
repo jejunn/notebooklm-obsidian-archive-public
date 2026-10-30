@@ -263,7 +263,9 @@ export function renderValidationBlock(result, options = {}) {
   }
 
   lines.push('');
-  lines.push(renderSaveDecision(errors.length, warnings.length, infos.length));
+  lines.push(options.dryRun ? '검증만 실행: Obsidian에 파일을 저장하지 않습니다.' : '실제 저장 모드');
+  lines.push(`검증 결과: ${errors.length > 0 ? '차단' : warnings.length > 0 ? '주의' : '통과'} — error ${errors.length}건, warning ${warnings.length}건, info ${infos.length}건`);
+  if (!options.dryRun) lines.push(renderSaveDecision(errors.length, warnings.length, infos.length));
 
   return lines.join('\n');
 }
@@ -360,6 +362,7 @@ export async function runValidationPipeline(request) {
     selectedLecture: request.selectedLecture,
     exhausted: request.exhausted,
     limit: request.limit,
+    pageChoices: request.pageChoices,
   });
 
   const block = renderValidationBlock(result, {
@@ -369,6 +372,7 @@ export async function runValidationPipeline(request) {
     pagination: request.pagination,
     offsetMinutes: request.offsetMinutes,
     extraEntries: request.extraEntries,
+    dryRun: request.dryRun,
   });
 
   if (isSaveBlocked(result, request.extraEntries)) {

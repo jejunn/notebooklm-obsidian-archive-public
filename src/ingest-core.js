@@ -195,7 +195,7 @@ export function detectOtherLecture(questionText, selectedLecture) {
  * @param {Array<{id: string, ts: number, kind: string, text: string}>} turns oldest-first
  * @returns {{groups: Array<object>, questions: Array<object>, byTurnId: Map<string, object>}}
  */
-export function runPageStateMachine(turns, { initialPage = null } = {}) {
+export function runPageStateMachine(turns, { initialPage = null, pageChoices = {} } = {}) {
   assertTurnArray(turns);
 
   const groups = [];
@@ -224,15 +224,23 @@ export function runPageStateMachine(turns, { initialPage = null } = {}) {
     if (turn.kind === 'question') {
       const reference = extractPageReference(turn.text);
 
-      if (reference.page !== null) {
+      let page = reference.page;
+      if (Object.hasOwn(pageChoices, turn.id)) {
+        const distinct = [...new Set(reference.pages)];
+        if (distinct.length < 2 || !distinct.includes(pageChoices[turn.id])) {
+          throw new CoreHardError('page choice must be one of the distinct referenced pages');
+        }
+        page = pageChoices[turn.id];
+      }
+      if (page !== null) {
         // Contract 2.2, row "n | 있음 (m) | 새 그룹 시작": the transition opens
         // a new group UNCONDITIONALLY, so `23페이지` asked twice in a row
         // yields two groups and two `## 23페이지` headings. The weaker "only
         // when the page changes" reading is what the ambiguous design spec
         // section 6 wording would have produced, and it is the one the code
         // used to implement even though the comment beside it said otherwise.
-        openGroup(reference.page);
-        currentPage = reference.page;
+        openGroup(page);
+        currentPage = page;
       } else if (currentGroup === null || currentPage === null) {
         // No page has been established yet: the question is unclassified and
         // no number is assigned (contract 2.6).
@@ -428,7 +436,7 @@ export function validatePages(turns, options = {}) {
     }
   }
 
-  const state = runPageStateMachine(turns);
+  const state = runPageStateMachine(turns, { pageChoices: options.pageChoices });
   for (const question of state.questions) {
     if (question.page === null) {
       unclassified.push({ text: question.question.text, ts: question.question.ts });
@@ -442,7 +450,7 @@ export function validatePages(turns, options = {}) {
       entry(
         GRADE_WARNING,
         'multi-page reference',
-        `multiple page references in one question: ${multiPage.length}; the last one is used`,
+        `multiple page references in one question: ${multiPage.length}`,
         { questions: multiPage.map((q) => ({ text: q.text, pages: q.pages })) }
       )
     );
@@ -552,8 +560,8 @@ export function validate(turns, options = {}) {
     infos,
     entries,
     counts,
-    groups: runPageStateMachine(turns).groups,
-    pairs: groupConversation(turns),
+    groups: runPageStateMachine(turns, { pageChoices: options.pageChoices }).groups,
+    pairs: runPageStateMachine(turns, { pageChoices: options.pageChoices }).questions,
   };
 }
 

@@ -149,3 +149,66 @@ describe('runArchive', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+test('ambiguous choices can be cancelled before vault access', async () => {
+  const wire = structuredClone(SYNTHETIC.slice(-4));
+  wire.find(t => t[2] === 1)[3] = '67페이지와 59페이지 비교';
+  const calls = [];
+  const result = await runArchive({ mode:'first', html:HTML, href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+    fetchImpl:stubFetch(envelope(wire), calls), confirm:()=>true, dryRun:false,
+    promptForApiKey:()=>{ throw new Error('must not ask for key'); }, resolvePages:async () => null });
+  expect(result).toContain('CANCELLED');
+  expect(calls).toHaveLength(1);
+});
+
+test('dry run supplies only distinct ambiguities to the resolver and shows no-write mode', async () => {
+  const wire = structuredClone(SYNTHETIC.slice(-4));
+  wire.find(t => t[2] === 1)[3] = '67페이지와 59페이지 비교';
+  let items; const confirmations=[];
+  const result = await runArchive({ mode:'first', html:HTML, href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+    fetchImpl:stubFetch(envelope(wire), []), dryRun:true, confirm:text=>{confirmations.push(text); return true;},
+    resolvePages:async choices => { items=choices; return { [choices[0].id]:67 }; } });
+  expect(items).toHaveLength(1);
+  expect(items[0].pages).toEqual([67,59]);
+  expect(result).toContain('DONE');
+  expect(confirmations[0]).toContain('저장하지 않');
+  expect(confirmations[0]).not.toContain('저장: 진행');
+});
+
+test('actual save applies the resolved page to output without editing the question', async () => {
+  const wire = structuredClone(SYNTHETIC.slice(-4));
+  const questions = wire.filter(t=>t[2]===1);
+  questions[1][3] = '67페이지와 59페이지 비교';
+  questions[0][3] = '이어 설명';
+  const requests=[];
+  const fetchImpl=async (url, options)=>{
+    requests.push({url,options});
+    if (options.method==='POST') return {ok:true,status:200,text:async()=>envelope(wire)};
+    if (options.method==='GET') return {ok:false,status:404};
+    return {ok:true,status:204};
+  };
+  const result=await runArchive({mode:'first',html:HTML,href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+    dryRun:false,fetchImpl,confirm:()=>true,promptForApiKey:()=> 'key',resolvePages:async items=>({[items[0].id]:67})});
+  expect(result).toContain('DONE');
+  const body=requests.find(r=>r.options.method==='PUT').options.body;
+  expect(body).toContain('## 67페이지\n\n### Q\n67페이지와 59페이지 비교');
+  expect(body).not.toContain('## 59페이지');
+  expect(body).toContain('이어 설명');
+});
+
+test('invalid resolver output is blocked before vault access', async () => {
+  const wire=structuredClone(SYNTHETIC.slice(-4)); wire.find(t=>t[2]===1)[3]='67페이지와 59페이지 비교';
+  const calls=[];
+  const result=await runArchive({mode:'first',html:HTML,href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+    dryRun:false,fetchImpl:stubFetch(envelope(wire),calls),confirm:()=>true,
+    resolvePages:async items=>({[items[0].id]:12})});
+  expect(result).toContain('INVALID_PAGE_SELECTION'); expect(calls).toHaveLength(1);
+});
+
+test('single distinct reference does not open a resolver', async () => {
+  const wire=structuredClone(SYNTHETIC.slice(-4)); wire.find(t=>t[2]===1)[3]='67페이지와 67페이지';
+  const result=await runArchive({mode:'first',html:HTML,href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+    dryRun:true,fetchImpl:stubFetch(envelope(wire),[]),confirm:()=>true,
+    resolvePages:()=>{throw new Error('resolver must not open');}});
+  expect(result).toContain('DONE');
+});

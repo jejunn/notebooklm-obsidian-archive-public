@@ -77,3 +77,18 @@ test('unknown file, wrong lecture, broken ledger, and duplicate metadata fail cl
     expect(()=>planModeSave(request({existingContent}))).toThrow();
   }
 });
+
+test('selected primary page controls initial archive and inherited continuation in review', () => {
+  const conversation=makeTurns('choice',2);
+  conversation[0].text='67페이지와 59페이지 비교';
+  conversation[2].text='그 내용을 더 설명해줘';
+  const pageChoices={'choice-0':67};
+  const first=planModeSave(request({mode:'first',existingContent:null,turns:conversation,conversationId:'choice-chat',pageChoices}));
+  const saved=renderModeSave(first,{...options,pageChoices});
+  expect(saved).toContain('## 67페이지\n\n### Q\n67페이지와 59페이지 비교');
+  expect(saved).not.toContain('## 59페이지');
+  const extended=[...conversation,{id:'choice-4',ts:1791000004,kind:'question',text:'이어 설명'},
+    {id:'choice-5',ts:1791000005,kind:'answer',text:'답변'}];
+  const append=planModeSave(request({existingContent:saved,turns:extended,conversationId:'choice-chat',pageChoices}));
+  expect(renderModeSave(append,{...options,pageChoices})).toContain('#### 67페이지\n\n##### Q\n이어 설명');
+});

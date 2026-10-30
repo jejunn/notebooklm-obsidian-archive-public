@@ -70,3 +70,19 @@ test('unsafe folder names and incomplete selections are rejected', () => {
   for(const lecture of ['',0,-1,1.5,'abc']) expect(()=>validateSaveOptions({mode:'first',course:'과목',lecture})).toThrow();
   expect(()=>validateSaveOptions({mode:'auto',course:'과목',lecture:2})).toThrow();
 });
+
+test('page resolver keeps question visible and places full answer in a closed disclosure', async () => {
+  const { requestPageChoices } = await import('../src/archive-options.js');
+  const all=[];
+  const document={body:{appendChild() {}},createElement(tag) {
+    const node={tag,children:[],style:{},textContent:'',open:false,appendChild(child){this.children.push(child);},
+      setAttribute(){},addEventListener(){},showModal(){},close(){},remove(){}};
+    all.push(node);return node;
+  }};
+  requestPageChoices(document,[{id:'q',text:'<question>',answer:'<long answer>',pages:[67,59]}]);
+  expect(all.find(n=>n.tag==='pre' && n.textContent.includes('<question>'))).toBeDefined();
+  const details=all.find(n=>n.tag==='details');
+  expect(details).toBeDefined();
+  expect(details.open).toBe(false);
+  expect(details.children.find(n=>n.tag==='pre').textContent).toContain('<long answer>');
+});

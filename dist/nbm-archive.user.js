@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         nbm-archive
-// @version      0.1.3
+// @version      0.1.4
 // @description  Archive one NotebookLM conversation into an Obsidian vault note
 // @match        https://notebook.google.com/*
 // @inject-into  content
@@ -11,7 +11,7 @@
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 1683 of the bundle below.
+// CONFIG starts at line 1768 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __defProp = Object.defineProperty;
@@ -112,7 +112,7 @@
       return null;
     return lecture === selectedLecture ? null : lecture;
   }
-  function runPageStateMachine(turns, { initialPage = null } = {}) {
+  function runPageStateMachine(turns, { initialPage = null, pageChoices = {} } = {}) {
     assertTurnArray(turns);
     const groups = [];
     const questions = [];
@@ -136,9 +136,17 @@
     for (const turn of turns) {
       if (turn.kind === "question") {
         const reference = extractPageReference(turn.text);
-        if (reference.page !== null) {
-          openGroup(reference.page);
-          currentPage = reference.page;
+        let page = reference.page;
+        if (Object.hasOwn(pageChoices, turn.id)) {
+          const distinct = [...new Set(reference.pages)];
+          if (distinct.length < 2 || !distinct.includes(pageChoices[turn.id])) {
+            throw new CoreHardError("page choice must be one of the distinct referenced pages");
+          }
+          page = pageChoices[turn.id];
+        }
+        if (page !== null) {
+          openGroup(page);
+          currentPage = page;
         } else if (currentGroup === null || currentPage === null) {
           if (currentGroup === null)
             openGroup(currentPage);
@@ -161,9 +169,6 @@
       }
     }
     return { groups, questions, byTurnId };
-  }
-  function groupConversation(turns) {
-    return runPageStateMachine(turns).questions;
   }
   var GRADE_ERROR = "error";
   var GRADE_WARNING = "warning";
@@ -235,7 +240,7 @@
         });
       }
     }
-    const state = runPageStateMachine(turns);
+    const state = runPageStateMachine(turns, { pageChoices: options.pageChoices });
     for (const question of state.questions) {
       if (question.page === null) {
         unclassified.push({ text: question.question.text, ts: question.question.ts });
@@ -244,7 +249,7 @@
       }
     }
     if (multiPage.length > 0) {
-      entries.push(entry(GRADE_WARNING, "multi-page reference", `multiple page references in one question: ${multiPage.length}; the last one is used`, { questions: multiPage.map((q) => ({ text: q.text, pages: q.pages })) }));
+      entries.push(entry(GRADE_WARNING, "multi-page reference", `multiple page references in one question: ${multiPage.length}`, { questions: multiPage.map((q) => ({ text: q.text, pages: q.pages })) }));
     }
     if (otherLecture.length > 0) {
       entries.push(entry(GRADE_WARNING, "other-lecture", `questions naming another lecture: ${otherLecture.length}`, {
@@ -295,8 +300,8 @@
       infos,
       entries,
       counts,
-      groups: runPageStateMachine(turns).groups,
-      pairs: groupConversation(turns)
+      groups: runPageStateMachine(turns, { pageChoices: options.pageChoices }).groups,
+      pairs: runPageStateMachine(turns, { pageChoices: options.pageChoices }).questions
     };
   }
   function assertTurnArray(turns) {
@@ -986,7 +991,7 @@
   }
   function assembleFirstArchive(turns, meta) {
     const offsetMinutes = meta.offsetMinutes ?? DEFAULT_UT_OFFSET_MINUTES;
-    const { groups } = runPageStateMachine(turns);
+    const { groups } = runPageStateMachine(turns, { pageChoices: meta.pageChoices });
     const archivedDate = meta.archivedDate ?? meta.archived;
     const blocks = [
       renderFrontmatter({ ...meta, archivedDate, turns }),
@@ -1011,7 +1016,7 @@
     if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new CoreHardError(`review session date must be YYYY-MM-DD: ${date} (spec 13.1)`);
     }
-    const { groups } = runPageStateMachine(turns, { initialPage: options.initialPage ?? null });
+    const { groups } = runPageStateMachine(turns, { initialPage: options.initialPage ?? null, pageChoices: options.pageChoices });
     const blocks = [];
     if (includeSection)
       blocks.push("## 추가 질문");
@@ -1146,7 +1151,10 @@
       }
     }
     lines.push("");
-    lines.push(renderSaveDecision(errors.length, warnings.length, infos.length));
+    lines.push(options.dryRun ? "검증만 실행: Obsidian에 파일을 저장하지 않습니다." : "실제 저장 모드");
+    lines.push(`검증 결과: ${errors.length > 0 ? "차단" : warnings.length > 0 ? "주의" : "통과"} — error ${errors.length}건, warning ${warnings.length}건, info ${infos.length}건`);
+    if (!options.dryRun)
+      lines.push(renderSaveDecision(errors.length, warnings.length, infos.length));
     return lines.join(`
 `);
   }
@@ -1190,7 +1198,8 @@
     const result = validate(turns, {
       selectedLecture: request.selectedLecture,
       exhausted: request.exhausted,
-      limit: request.limit
+      limit: request.limit,
+      pageChoices: request.pageChoices
     });
     const block = renderValidationBlock(result, {
       course: request.course,
@@ -1198,7 +1207,8 @@
       filePath: request.filePath,
       pagination: request.pagination,
       offsetMinutes: request.offsetMinutes,
-      extraEntries: request.extraEntries
+      extraEntries: request.extraEntries,
+      dryRun: request.dryRun
     });
     if (isSaveBlocked(result, request.extraEntries)) {
       return {
@@ -1386,7 +1396,7 @@
       return { ...base, action: "noop", sessions };
     if (validateStructure(newTurns).some((e) => e.grade === "error"))
       fail("anchor splits a question/answer pair");
-    const initialPage = position >= 0 ? runPageStateMachine(turns.slice(0, position + 1)).groups.at(-1)?.page ?? null : null;
+    const initialPage = position >= 0 ? runPageStateMachine(turns.slice(0, position + 1), { pageChoices: request.pageChoices }).groups.at(-1)?.page ?? null : null;
     return {
       ...base,
       action: "append",
@@ -1692,6 +1702,81 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
       dialog.showModal();
     });
   }
+  function requestPageChoices(document2, questions) {
+    if (!questions.length)
+      return Promise.resolve({});
+    return new Promise((resolve) => {
+      const dialog = document2.createElement("dialog");
+      dialog.setAttribute("aria-label", "대표 페이지 선택");
+      dialog.style.cssText = "max-width:720px;width:calc(100% - 48px);max-height:85vh;overflow:auto;padding:24px;border:1px solid #bbb;border-radius:12px;background:#fff;color:#222;z-index:2147483647;font:15px system-ui;";
+      const form = document2.createElement("form");
+      const heading = document2.createElement("h2");
+      heading.textContent = "복수 페이지 질문의 대표 페이지 선택";
+      form.appendChild(heading);
+      const help = document2.createElement("p");
+      help.textContent = "각 질문을 묶을 페이지를 선택하세요. 첫 번째로 언급된 페이지가 기본 선택입니다.";
+      form.appendChild(help);
+      const selects = [];
+      for (const question of questions) {
+        const section = document2.createElement("section");
+        const text = document2.createElement("pre");
+        text.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;";
+        text.textContent = `질문: ${question.text}`;
+        section.appendChild(text);
+        const details = document2.createElement("details");
+        const summary = document2.createElement("summary");
+        summary.textContent = "답변 보기";
+        details.appendChild(summary);
+        const answer = document2.createElement("pre");
+        answer.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;";
+        answer.textContent = question.answer ?? "(답변 없음)";
+        details.appendChild(answer);
+        section.appendChild(details);
+        const label = document2.createElement("label");
+        label.textContent = "대표 페이지: ";
+        const select = document2.createElement("select");
+        for (const page of question.pages) {
+          const option = document2.createElement("option");
+          option.value = String(page);
+          option.textContent = `${page}페이지`;
+          select.appendChild(option);
+        }
+        label.appendChild(select);
+        section.appendChild(label);
+        form.appendChild(section);
+        selects.push(select);
+      }
+      const submit = document2.createElement("button");
+      submit.type = "submit";
+      submit.textContent = "선택 완료";
+      form.appendChild(submit);
+      const cancel = document2.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "취소";
+      form.appendChild(cancel);
+      const finish = (value) => {
+        dialog.close();
+        dialog.remove();
+        resolve(value);
+      };
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const choices = Object.create(null);
+        questions.forEach((q, i) => {
+          choices[q.id] = Number(selects[i].value);
+        });
+        finish(choices);
+      });
+      cancel.addEventListener("click", () => finish(null));
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        finish(null);
+      });
+      dialog.appendChild(form);
+      document2.body.appendChild(dialog);
+      dialog.showModal();
+    });
+  }
 
   // src/userscript-main.js
   var CONFIG = {
@@ -1732,6 +1817,7 @@ ${plan.newConversation ? "새 복습 대화 전체를 추가합니다." : "이�
     promptForApiKey = typeof window === "undefined" ? () => null : window.prompt.bind(window),
     notify = typeof window === "undefined" ? () => {} : window.alert.bind(window),
     mode,
+    resolvePages = typeof document === "undefined" ? async () => null : (questions) => requestPageChoices(document, questions),
     notebookId = CONFIG.notebookId,
     conversationId = CONFIG.conversationId,
     course = CONFIG.course,
@@ -1791,10 +1877,31 @@ Obsidian에는 저장하지 않았습니다. 긴 대화 처리는 별도 개선�
         detail: "a next-page token came back and the page-2 request shape is unproven " + "(the one recorded attempt used token_param_index: 1 and repeated all " + "100 rows of page 1). Nothing was written."
       });
     }
+    const ambiguous = collected.turns.flatMap((turn, index) => {
+      if (turn.kind !== "question")
+        return [];
+      const pages = [...new Set(extractPageReference(turn.text).pages)];
+      if (pages.length < 2)
+        return [];
+      const next = collected.turns[index + 1];
+      return [{ id: turn.id, text: turn.text, answer: next?.kind === "answer" ? next.text : null, pages }];
+    });
+    let pageChoices = {};
+    if (ambiguous.length) {
+      pageChoices = await resolvePages(ambiguous);
+      if (pageChoices === null)
+        return report({ step: "CANCELLED", verdict: "CANCELLED", reason: "page selection cancelled" });
+      if (!pageChoices || typeof pageChoices !== "object" || ambiguous.some((q) => !Object.hasOwn(pageChoices, q.id) || !q.pages.includes(pageChoices[q.id]))) {
+        notify("대표 페이지 선택이 올바르지 않아 저장을 중단했습니다.");
+        return report({ step: "BLOCKED", verdict: "INVALID_PAGE_SELECTION" });
+      }
+    }
     const vaultPath = `${cfg.course}/${cfg.lecture}강.md`;
     let approved = false;
     const pipeline = await runValidationPipeline({
       turns: collected.turns,
+      pageChoices,
+      dryRun: cfg.dryRun,
       course: cfg.course,
       lecture: cfg.lecture,
       selectedLecture: cfg.lecture,
@@ -1840,6 +1947,7 @@ Obsidian에는 저장하지 않았습니다. 긴 대화 처리는 별도 개선�
           mode: cfg.mode,
           path: vaultPath,
           turns: collected.turns,
+          pageChoices,
           course: cfg.course,
           lecture: cfg.lecture,
           conversationId: cfg.conversationId,

@@ -51,7 +51,7 @@ export function planModeSave(request) {
   const newTurns=turns.slice(position+1);
   if(!newTurns.length) return {...base,action:'noop',sessions};
   if(validateStructure(newTurns).some(e=>e.grade==='error')) fail('anchor splits a question/answer pair');
-  const initialPage=position>=0 ? runPageStateMachine(turns.slice(0,position+1)).groups.at(-1)?.page ?? null : null;
+  const initialPage=position>=0 ? runPageStateMachine(turns.slice(0,position+1), {pageChoices: request.pageChoices}).groups.at(-1)?.page ?? null : null;
   return {...base,action:'append',write:true,newTurns,sessions,
     newConversation:anchorId===null,anchor:{turnId:anchorId,position:position+1},initialPage};
 }
