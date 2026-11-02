@@ -212,3 +212,43 @@ test('single distinct reference does not open a resolver', async () => {
     resolvePages:()=>{throw new Error('resolver must not open');}});
   expect(result).toContain('DONE');
 });
+
+test('successful save shows actionable saved-line math diagnostics without note text', async () => {
+  const wire = structuredClone(SYNTHETIC.slice(-2));
+  wire.find(t => t[2] === 2)[4][0][0] = '$\\text{&#126;} private-example$';
+  let saved; const notices=[];
+  const fetchImpl = async (_url, options) => {
+    if (options.method === 'POST') return { ok:true, status:200, text:async () => envelope(wire) };
+    if (options.method === 'GET') return { status:404 };
+    saved=options.body; return { status:204 };
+  };
+  const capture = captureLog();
+  try {
+    await runArchive({mode:'first',html:HTML,href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+      dryRun:false,fetchImpl,confirm:()=>true,promptForApiKey:()=> 'key', notify:text=>notices.push(text)});
+    const line = saved.split('\n').findIndex(s => s.includes('&#126;')) + 1;
+    expect(notices.at(-1)).toContain(`${line}행: 틸드 의미 확인`);
+    expect(notices.at(-1)).not.toContain('private-example');
+    expect(capture.lines.join('\n')).not.toContain('private-example');
+  } finally { capture.restore(); }
+});
+
+test('save notice reports ambiguous markers without contents and caps diagnostic rows', async () => {
+  const wire = structuredClone(SYNTHETIC.slice(-2));
+  wire.find(t => t[2] === 2)[4][0][0] = Array(25).fill('A complete sentence ends here. [1] Another sentence follows here.').join('\n\n');
+  let saved; const notices=[];
+  const fetchImpl = async (_url, options) => {
+    if (options.method === 'POST') return {ok:true,status:200,text:async()=>envelope(wire)};
+    if (options.method === 'GET') return {status:404};
+    saved=options.body; return {status:204};
+  };
+  const capture = captureLog();
+  try {
+    await runArchive({mode:'first',html:HTML,href:`https://notebook.google.com/notebook/${NOTEBOOK}`,
+      dryRun:false,fetchImpl,confirm:()=>true,promptForApiKey:()=> 'key',notify:text=>notices.push(text)});
+    const line = saved.split('\n').findIndex(s => s.includes('[1]')) + 1;
+    expect(notices.at(-1)).toContain(`${line}행: 숫자 대괄호 후보 확인`);
+    expect(notices.at(-1)).toContain('외 5건');
+    expect(notices.at(-1)).not.toContain('A complete sentence');
+  } finally { capture.restore(); }
+});

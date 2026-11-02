@@ -246,10 +246,15 @@ export async function runArchive({
   const action = pipeline.writeResult?.action;
   const step = action === 'noop' ? 'NOOP' : action === 'cancelled' ? 'CANCELLED'
     : pipeline.writeResult?.ok ? 'DONE' : 'BLOCKED';
+  const diagnostics = pipeline.writeResult?.mathDiagnostics ?? [];
+  const labels = { verbatim: '원문 수식의 인코딩 확인', 'mixed-delimiter': '수식 구분자 후보 확인', 'encoded-operator': '연산자 인코딩 확인', 'less-than': '부등호 문맥 확인', tilde: '틸드 의미 확인', 'doubled-command': '이중 백슬래시 후보 확인', 'escaped-percent': '퍼센트 이스케이프 후보 확인', 'missing-opener': '수식 시작 구분자 확인', 'ambiguous-source-marker': '숫자 대괄호 후보 확인' };
+  const diagnosticNotice = diagnostics.length ? '\n표시 확인: 원문을 유지했습니다. Obsidian 소스 모드에서 다음 줄을 확인하세요.\n' +
+    diagnostics.slice(0, 20).map(item => `${item.line}행: ${labels[item.kind]}`).join('\n') +
+    (diagnostics.length > 20 ? `\n외 ${diagnostics.length - 20}건` : '') : '';
   if (step !== 'CANCELLED') notify(step === 'NOOP' ? '추가할 새 질문이 없습니다. 기존 파일을 유지했습니다.'
     : step === 'BLOCKED' ? `저장하지 않았습니다.\n${pipeline.writeResult?.reason ?? '저장 조건을 확인하세요.'}`
     : cfg.dryRun ? '검증을 완료했습니다. 검증만 실행하여 Obsidian에는 저장하지 않았습니다.'
-    : `${vaultPath}\n${cfg.mode === 'first' ? '처음 저장' : '복습 추가'}를 완료했습니다.`);
+    : `${vaultPath}\n${cfg.mode === 'first' ? '처음 저장' : '복습 추가'}를 완료했습니다.${diagnosticNotice}`);
   return report({ step, writeResult: pipeline.writeResult });
 }
 

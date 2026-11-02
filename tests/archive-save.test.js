@@ -185,3 +185,30 @@ test('anchor in the middle of a question/answer pair blocks instead of dropping 
   expect((await h.run()).ok).toBe(false);
   expect(h.requests.map((r) => r.method)).toEqual(['GET']);
 });
+
+test('successful save reports ambiguity at the actual saved line without content', async () => {
+  const h = harness(null, {mode:'first'});
+  const candidate = turns.map((turn, i) => i === 1 ? { ...turn, text: '$\\text{&#126;} x$' } : turn);
+  const result = await h.run({ turns: candidate });
+  const line = h.content().split('\n').findIndex(s => s.includes('&#126;')) + 1;
+  expect(result.mathDiagnostics).toEqual([{line, kind:'tilde'}]);
+});
+
+test('append diagnostics use line numbers in the entire saved note', async () => {
+  const h = harness();
+  const candidate = turns.map((turn, i) => i === 5 ? { ...turn, text: '$\\text{&#126;} x$' } : turn);
+  const result = await h.run({ turns: candidate });
+  const line = h.content().split('\n').findIndex(s => s.includes('&#126;')) + 1;
+  expect(result.mathDiagnostics).toEqual([{line, kind:'tilde'}]);
+});
+
+test('first and appended saves report preserved ambiguous markers at saved line numbers', async () => {
+  for (const [initial, index] of [[null, 1], [base, 5]]) {
+    const h = harness(initial, initial === null ? {mode:'first'} : {});
+    const candidate = turns.map((turn, i) => i === index ? {...turn, text:'A complete sentence ends here. [1] Another sentence follows here.'} : turn);
+    const result = await h.run({turns:candidate});
+    const line = h.content().split('\n').findIndex(s => s.includes('[1]')) + 1;
+    expect(line).toBeGreaterThan(0);
+    expect(result.mathDiagnostics).toContainEqual({line,kind:'ambiguous-source-marker'});
+  }
+});

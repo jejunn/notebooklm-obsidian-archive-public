@@ -16,6 +16,7 @@
 
 import { CoreHardError, runPageStateMachine } from './ingest-core.js';
 import { stripSourceMarkers } from './citation-cleanup.js';
+import MarkdownIt from './vendor/markdown-it/markdown-it.cjs';
 
 /**
  * Fixed offset for rendering turn timestamps.
@@ -74,76 +75,150 @@ export function formatDate(ts, options = {}) {
 // Obsidian renders dollar-delimited math, so the NotebookLM escaping is undone
 // here rather than by the extractor (contract 1.5 returns the body verbatim).
 //
-// Inline code and fenced code are NOT touched. Fixture 6 carries a Python fence
+// Inline code, fenced and indented code are NOT touched. Fixture 6 carries a Python fence
 // whose source legitimately contains backslashes; rewriting delimiters inside
 // it would corrupt code that the user came here to read. The display form is
 // converted before the inline form because `\[` and `\(` are distinct, but the
 // order is fixed anyway so a future edit cannot introduce an overlap.
-const FENCE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
+// The parser supplies source-line ranges for nested Markdown code blocks.
+// CommonMark block parsing takes precedence over prospective inline math.
+const markdownBlocks = new MarkdownIt('commonmark');
+// Capture the exact source positions consumed by the parser's own inline
+// rules. This avoids reimplementing escape, link, HTML and backtick precedence.
+const markdownInline = new MarkdownIt('commonmark');
+for (const name of ['backticks', 'link', 'image', 'autolink', 'html_inline']) {
+  const rule = markdownInline.inline.ruler.__rules__.find(entry => entry.name === name).fn;
+  markdownInline.inline.ruler.at(name, (state, silent) => {
+    const start = state.pos;
+    const count = state.tokens.length;
+    const result = rule(state, silent);
+    const capture = state.env.inlineSourceRanges;
+    if (result && !silent && capture && state.src === capture.source &&
+        (name !== 'backticks' || state.tokens.slice(count).some(token => token.type === 'code_inline'))) {
+      capture.ranges.push([start, state.pos]);
+    }
+    return result;
+  });
+}
 // Recorded bodies use both single and doubled delimiter backslashes. Consume
 // the whole delimiter and require equal widths at each end; otherwise a
 // leftover backslash escapes the resulting dollar sign in Markdown. TeX inside
 // the delimiters (including \\\\ line breaks) remains byte-identical.
 const DISPLAY_MATH = /(?<!\\)(\\{1,2})\[([\s\S]*?)(?<!\\)\1\]/g;
 const INLINE_MATH = /(?<!\\)(\\{1,2})\(([\s\S]*?)(?<!\\)\1\)/g;
-const INLINE_CODE = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
 
 /**
  * Convert LaTeX delimiters outside code fences.
  *
- * The text is cut into fenced and unfenced segments and only the unfenced ones
- * are rewritten. A fenced segment is the opening line, everything up to the
- * matching closing line, and the closing line, emitted byte for byte. The cut is
- * made on lines, so a `\[` opened before a fence can never pair with a `\]` after
- * it; an unterminated fence swallows the rest of the body, which is the
- * conservative direction because an unterminated fence is already broken
- * Markdown.
+ * CommonMark block parsing identifies code and raw HTML source lines before
+ * any math matching. These lines are emitted byte for byte; an opening math
+ * delimiter cannot pair across a code block. Inline code is protected within
+ * each remaining segment, including multiline spans.
  *
  * @param {string} text
  * @returns {string} the same text with `\(...\)` and `\[...\]` re-delimited
  */
+export function diagnoseSentenceSourceMarkers(text) {
+  const found = [];
+  const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map(m => m[1]));
+  processMathBlocks(text, (part, base) => {
+    const regions = mathRegions(part);
+    const verbs = [...part.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
+    return part.replace(/([.!?。])([ \t]+)\[([1-9]\d*)\]([ \t]+)(?=[A-Z가-힣])/gu, (whole, punctuation, before, number, after, offset) => {
+      const absolute = base + offset;
+      const lineStart = Math.max(text.lastIndexOf('\n', absolute - 1), text.lastIndexOf('\r', absolute - 1)) + 1;
+      const beforeParagraph = text.slice(0, absolute).split(/\r?\n[ \t]*\r?\n/).at(-1);
+      const afterParagraph = text.slice(absolute).split(/\r?\n[ \t]*\r?\n/)[0];
+      const paragraph = beforeParagraph + afterParagraph;
+      if (references.has(number) || [...paragraph.matchAll(/\[\d+(?:[,-]\s*\d+)*\]/g)].length !== 1) return whole;
+      if (!/\p{L}.{5,}/u.test(text.slice(lineStart, absolute))) return whole;
+      if (regions.some(region => region.start < offset + whole.length && region.end > offset) || verbs.some(v => v.index < offset + whole.length && v.index + v[0].length > offset)) return whole;
+      found.push({line: (text.slice(0, absolute).match(/\r\n|\r|\n/g) ?? []).length + 1, kind: 'ambiguous-source-marker'});
+      return whole;
+    });
+  }, true);
+  return found;
+}
+
 export function convertLatexDelimiters(text) {
+  return processMathBlocks(text, part => convertMath(part));
+}
+
+export function convertAnswerLatexDelimiters(text) {
+  return processMathBlocks(text, part => convertMath(part, true), true);
+}
+
+function processMathBlocks(text, processor, protectLiteral = false) {
   if (typeof text !== 'string') {
     throw new CoreHardError('text is not a string (§1.2)');
   }
-  const lines = text.split('\n');
-  const segments = [];
-  let buffer = [];
-  let fenced = false;
-  let fenceChar = null;
-
-  const flush = () => {
-    if (buffer.length > 0) {
-      segments.push({ fenced, text: buffer.join('\n') });
-      buffer = [];
-    }
-  };
-
-  for (const line of lines) {
-    const match = FENCE.exec(line);
-    if (!fenced && match) {
-      flush();
-      fenced = true;
-      fenceChar = match[2][0];
-      buffer.push(line);
-      continue;
-    }
-    if (fenced) {
-      buffer.push(line);
-      // A closing fence repeats the fence character at least three times and
-      // carries no info string.
-      if (match && match[2].length >= 3 && match[2][0] === fenceChar && match[3].trim() === '') {
-        flush();
-        fenced = false;
-        fenceChar = null;
+  // Keep each original line ending: the parser normalizes CR and CRLF.
+  const lines = text.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g) ?? [];
+  const protectedLines = new Set();
+  const inlineBlocks = new Map();
+  // Literal environments can span paragraphs and parser blocks. Mark their
+  // full source lines before block splitting, including unclosed environments.
+  if (protectLiteral) {
+    let environment = null;
+    for (let line = 0; line < lines.length; line += 1) {
+      let cursor = 0;
+      let owned = environment !== null;
+      const startPattern = /(?<!\\)\\begin\s*\{(verbatim\*?|Verbatim\*?)\}/g;
+      while (cursor < lines[line].length) {
+        if (environment) {
+          const end = `\\end{${environment}}`;
+          let index = lines[line].indexOf(end, cursor);
+          while (index > 0 && lines[line][index - 1] === '\\') index = lines[line].indexOf(end, index + end.length);
+          if (index < 0) break;
+          cursor = index + end.length;
+          environment = null;
+        } else {
+          startPattern.lastIndex = cursor;
+          const start = startPattern.exec(lines[line]);
+          if (!start) break;
+          owned = true;
+          environment = start[1];
+          cursor = startPattern.lastIndex;
+        }
       }
-      continue;
+      if (owned) protectedLines.add(line);
     }
-    buffer.push(line);
+  }
+  const env = {};
+  for (const token of markdownBlocks.parse(text, env)) {
+    if (!token.map) continue;
+    if (token.type === 'fence' || token.type === 'code_block' || token.type === 'html_block') {
+      for (let line = token.map[0]; line < token.map[1]; line += 1) protectedLines.add(line);
+    } else if (token.type === 'inline') {
+      for (let line = token.map[0]; line < token.map[1]; line += 1) inlineBlocks.set(line, token);
+    }
+  }
+
+  const output = [];
+  let prose = [];
+  let currentBlock = null;
+  let sourceOffset = 0;
+  let proseOffset = 0;
+  const flush = () => {
+    if (prose.length) output.push(convertSegment(prose, currentBlock, env, processor, proseOffset, protectLiteral));
+    prose = [];
+  };
+  for (let line = 0; line < lines.length; line += 1) {
+    const block = inlineBlocks.get(line);
+    if (protectedLines.has(line) || block === undefined) {
+      flush();
+      currentBlock = null;
+      output.push(lines[line]);
+    } else {
+      if (block !== currentBlock) flush();
+      currentBlock = block;
+      if (!prose.length) proseOffset = sourceOffset;
+      prose.push(lines[line]);
+    }
+    sourceOffset += lines[line].length;
   }
   flush();
-
-  return segments.map((s) => (s.fenced ? s.text : convertSegment(s.text))).join('\n');
+  return output.join('');
 }
 
 /**
@@ -157,20 +232,283 @@ export function convertLatexDelimiters(text) {
  * @param {string} segment
  * @returns {string}
  */
-function convertSegment(segment) {
+function convertSegment(lines, token, env, processor, baseOffset, protectLiteral) {
+  const segment = lines.join('');
+  const contentLines = token.content.split('\n');
+  const offsets = [];
+  let base = 0;
+  // Block parsing removes container prefixes and can normalize tabs. Map only
+  // unambiguous exact source text; otherwise leave the entire block untouched.
+  if (contentLines.length > lines.length) return segment;
+  for (let i = 0; i < contentLines.length; i += 1) {
+    const raw = lines[i].replace(/(?:\r\n|\r|\n)$/, '');
+    const content = contentLines[i];
+    const index = content ? raw.indexOf(content) : raw.length;
+    if (index < 0 || (content && index !== raw.lastIndexOf(content))) return segment;
+    for (let j = 0; j < content.length; j += 1) offsets.push(base + index + j);
+    if (i + 1 < contentLines.length) offsets.push(base + raw.length);
+    base += lines[i].length;
+  }
+
+  const capture = { source: token.content, ranges: [] };
+  markdownInline.inline.parse(token.content, markdownInline, { ...env, inlineSourceRanges: capture }, []);
+  const ranges = capture.ranges.map(([start, end]) => [offsets[start], offsets[end - 1] + 1]);
+  // Protect complete raw URI spans before math tokenization, including any
+  // dollar or slash delimiters that happen to occur in a URI. Require an
+  // explicit scheme and authority marker (or mailto) to avoid treating prose as a URL.
+  const uriRanges = [];
+  for (const match of segment.matchAll(/(?<![A-Za-z0-9+.-])(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:)[^\s<>]+/gi)) {
+    uriRanges.push([match.index, match.index + match[0].length]);
+  }
+  // Preserve a comment-containing math region as a whole even when a URI
+  // appears within the comment. Mask URIs in place to retain source offsets
+  // while preventing URI dollar characters from becoming math tokens.
+  const literalRanges = protectLiteral
+    ? [...segment.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)].map(match => [match.index, match.index + match[0].length])
+    : [];
+  let masked = segment;
+  for (const [start, end] of [...ranges, ...uriRanges, ...literalRanges]) masked = masked.slice(0, start) + ' '.repeat(end - start) + masked.slice(end);
+  for (const region of mathRegions(masked)) {
+    if (region.hasComment || literalRanges.some(([start, end]) => start < region.end && end > region.start)) ranges.push([region.start, region.end]);
+  }
+  ranges.push(...uriRanges, ...literalRanges);
+  ranges.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
   let converted = '';
   let cursor = 0;
-  for (const match of segment.matchAll(INLINE_CODE)) {
-    converted += convertMath(segment.slice(cursor, match.index)) + match[0];
-    cursor = match.index + match[0].length;
+  for (const [start, end] of ranges) {
+    if (start < cursor) {
+      if (end > cursor) converted += segment.slice(cursor, end);
+      cursor = Math.max(cursor, end);
+      continue;
+    }
+    converted += processor(segment.slice(cursor, start), baseOffset + cursor) + segment.slice(start, end);
+    cursor = end;
   }
-  return converted + convertMath(segment.slice(cursor));
+  return converted + processor(segment.slice(cursor), baseOffset + cursor);
 }
 
-function convertMath(text) {
-  return text
-    .replace(DISPLAY_MATH, (_, _slashes, body) => `$$${body}$$`)
-    .replace(INLINE_MATH, (_, _slashes, body) => `$${body}$`);
+// Find complete delimiter regions before changing any bytes. Nested or mixed
+// pairs are ambiguous and remain untouched. Verbatim contents are opaque.
+function mathRegions(text) {
+  const token = /(?<!\\)(\\+)([\[\]()])|(?<!\\)(\$+)/g;
+  const regions = [];
+  let stack = [];
+  let start = 0;
+  let ambiguous = false;
+  let hasVerb = false;
+  let hasComment = false;
+  let match;
+  while ((match = token.exec(text))) {
+    // A TeX verbatim region can contain delimiter-looking characters. Skip it
+    // only if its delimiter closes on the same line; otherwise fail closed.
+    if (stack.length) {
+      // Interpret comments only after an opening math token. A comment hides
+      // delimiter tokens until the next physical line, but verbatim payloads
+      // and escaped percent signs are opaque while searching for it.
+      let skippedComment = false;
+      for (let i = stack.at(-1).after; i < match.index; i += 1) {
+        if (text[i] === '\\') {
+          const verb = /^\\verb\*?(?![A-Za-z])/.exec(text.slice(i));
+          if (verb) {
+            const pos = i + verb[0].length;
+            const delimiter = text[pos];
+            const end = delimiter && !/[\r\n]/.test(delimiter) ? text.indexOf(delimiter, pos + 1) : -1;
+            const lineEnd = text.slice(pos + 1).search(/[\r\n]/);
+            if (end >= 0 && (lineEnd < 0 || end < pos + 1 + lineEnd)) { i = end; continue; }
+          }
+          i += 1;
+        } else if (text[i] === '%') {
+          hasComment = true;
+          const offset = text.slice(i).search(/[\r\n]/);
+          const next = offset < 0 ? text.length : i + offset + 1;
+          token.lastIndex = next;
+          stack.at(-1).after = next;
+          skippedComment = true;
+          break;
+        }
+      }
+      if (skippedComment) continue;
+      const prefix = text.slice(stack.at(-1).after, match.index + 1);
+      const verbs = [...prefix.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])/g)];
+      const verb = verbs.at(-1);
+      if (verb) {
+        hasVerb = true;
+        const delimiterIndex = stack.at(-1).after + verb.index + verb[0].length;
+        const delimiter = text[delimiterIndex];
+        const begin = delimiterIndex + 1;
+        const end = delimiter && delimiter !== '\n' && delimiter !== '\r' ? text.indexOf(delimiter, begin) : -1;
+        const newline = text.slice(begin).search(/[\r\n]/);
+        if (end >= 0 && (newline < 0 || end < begin + newline) && match.index <= end) {
+          token.lastIndex = end + 1;
+          stack.at(-1).after = end + 1;
+          continue;
+        }
+      }
+    }
+    const slash = match[1];
+    const glyph = match[2];
+    const dollar = match[3];
+    const isOpen = slash && (glyph === '(' || glyph === '[');
+    const type = dollar || slash + (glyph === '(' || glyph === ')' ? '()' : '[]');
+    if (!stack.length) {
+      if (slash && !isOpen) {
+        regions.push({start:match.index, end:token.lastIndex, ambiguous:true, orphan:true});
+        continue;
+      }
+      start = match.index;
+      ambiguous = false;
+      hasVerb = false;
+      hasComment = false;
+      stack.push({type, after:token.lastIndex});
+      continue;
+    }
+    const top = stack.at(-1);
+    if ((dollar && top.type === type) || (slash && !isOpen && top.type === type)) {
+      stack.pop();
+      if (!stack.length) {
+        regions.push({start, end:token.lastIndex, ambiguous, hasVerb, hasComment, type});
+      } else stack.at(-1).after = token.lastIndex;
+    } else if (slash && !isOpen) {
+      ambiguous = true;
+      top.after = token.lastIndex;
+    } else {
+      ambiguous = true;
+      stack.push({type, after:token.lastIndex});
+    }
+  }
+  if (stack.length) regions.push({start, end:text.length, ambiguous:true, unclosed:true, hasComment,
+    explicit:stack.some(x => x.type !== '$' && x.type !== '$$')});
+  return regions;
+}
+
+function convertMath(text, repairMissingOpener = false) {
+  // A malformed opener can be recovered only when the complete candidate is
+  // a numeric quantity enclosed by prose parentheses and the orphan closer
+  // belongs to no existing math region. All other orphan syntax stays intact.
+  const regions = mathRegions(text);
+  const verbs = [...text.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
+  const pattern = /\((\\\\)([+-]?(?:\d+(?:\.\d+)?|\.\d+))(\\text\{ [A-Za-zµΩ]{1,4}\})(\\\\\))(?=[^\r\n]*\p{L})/gu;
+  if (repairMissingOpener) text = text.replace(pattern, (whole, slash, number, unit, closer, offset) => {
+    if (verbs.some(v => v.index < offset + whole.length && v.index + v[0].length > offset)) return whole;
+    const closeStart = offset + whole.length - closer.length;
+    const owner = regions.find(region => region.start <= closeStart && region.end > closeStart);
+    if (!owner?.orphan || owner.start !== closeStart || regions.some(region => region.start < closeStart && region.end > offset)) return whole;
+    if (!/\p{L}/u.test(text.slice(0, offset).split(/\r\n|\r|\n/).at(-1))) return whole;
+    return `($${number}${unit}$)`;
+  });
+  let result = '';
+  let cursor = 0;
+  for (const region of mathRegions(text)) {
+    result += text.slice(cursor, region.start);
+    const original = text.slice(region.start, region.end);
+    if (region.ambiguous || region.hasVerb || region.hasComment) result += original;
+    else if (region.type === '$' || region.type === '$$') result += convertDollarMath(original);
+    else if (/^\\{1,2}(?:\(\)|\[\])$/.test(region.type)) {
+      const width = region.type.length - 2;
+      const marker = region.type.endsWith('[]') ? '$$' : '$';
+      result += convertDollarMath(marker + original.slice(width + 1, -(width + 1)) + marker);
+    } else result += original;
+    cursor = region.end;
+  }
+  return result + text.slice(cursor);
+}
+
+function convertDollarMath(text) {
+  return text.replace(/(?<![\\$])(\${1,2})(?!\$)(?:(?!\n[ \t]*\n)[\s\S])*?(?<![\\$])\1(?!\$)/g, (math) => {
+    // Unknown macro arguments and unbalanced braces are not operator context.
+    let depth = 0;
+    let balanced = true;
+    for (let i = 0; i < math.length; i += 1) {
+      if (math[i] === '\\') { i += 1; continue; }
+      // TeX comments make subsequent tokens opaque through the line ending.
+      if (math[i] === '%') return math;
+      if (math[i] === '{') depth += 1;
+      else if (math[i] === '}') depth -= 1;
+      if (depth < 0) balanced = false;
+    }
+    if (depth !== 0 || !balanced) return math;
+    let result = math.replace(/(?<!\\)&(?:#(?:0*43|x0*2b|0*45|x0*2d)|lt|#0*60|#x0*3c|#0*126|#x0*7e);/gi, (entity, offset, source) => {
+      let level = 0;
+      for (let i = 0; i < offset; i += 1) {
+        if (source[i] === '\\') { i += 1; continue; }
+        if (source[i] === '{') level += 1;
+        else if (source[i] === '}') level -= 1;
+      }
+      if (level !== 0 || /\b(?:https?:\/\/|mailto:)[^\s<>$]*$/i.test(source.slice(0, offset))) return entity;
+      if (/^&#(?:0*126|x0*7e);$/i.test(entity)) return '\\text{\\char"007E}';
+      if (/^&#(?:0*43|x0*2b);$/i.test(entity)) return '+';
+      if (/^&#(?:0*45|x0*2d);$/i.test(entity)) return '-';
+      return '\\lt{}';
+    });
+    return result;
+  });
+}
+
+/** Return source line numbers for ambiguous candidates, without note content. */
+export function diagnoseMath(text) {
+  const found = [];
+  const add = (offset, kind) => {
+    const line = (text.slice(0, offset).match(/\r\n|\r|\n/g) ?? []).length + 1;
+    if (!found.some(item => item.line === line && item.kind === kind)) found.push({ line, kind });
+  };
+  processMathBlocks(text, (part, base) => {
+    // Mask raw URLs without changing offsets; parser-owned Markdown links are already protected.
+    const scan = part
+      .replace(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm, m => ' '.repeat(m.length))
+      .replace(/\b(?:https?:\/\/|mailto:)[^\s<>]*/gi, m => ' '.repeat(m.length));
+    const regions = mathRegions(part);
+    for (const match of scan.matchAll(/(?<!\\)\\\\%(?![A-Za-z])/g)) {
+      if (!regions.some(region => match.index >= region.start && match.index < region.end)) add(base + match.index, 'escaped-percent');
+    }
+    // Detect the narrow absent-opener case before generic orphan closers.
+    for (const match of part.matchAll(/(?<!\\)\\\\\d[^\r\n]*?(?<!\\)\\\\\)/g)) add(base + match.index, 'missing-opener');
+    for (const region of regions) {
+      if (region.orphan) {
+        const line = (text.slice(0, base + region.start).match(/\r\n|\r|\n/g) ?? []).length + 1;
+        if (found.some(item => item.line === line && item.kind === 'missing-opener')) continue;
+      }
+      const value = part.slice(region.start, region.end);
+      // A TeX comment can contain arbitrary apparent commands and delimiters.
+      // Suppress this region's diagnostics when its structure is uncertain.
+      let comment = false;
+      for (let i = 0; i < value.length; i += 1) {
+        if (value[i] === '\\') i += 1;
+        else if (value[i] === '%') { comment = true; break; }
+      }
+      if (comment || region.hasComment) continue;
+      if (region.ambiguous) {
+        if (!region.unclosed || region.explicit || /&(?:#\d+|#x[\da-f]+|[a-z]+);/i.test(value))
+          add(base + region.start, 'mixed-delimiter');
+        continue;
+      }
+      if (region.type && ((/^\$+$/.test(region.type) && region.type.length > 2) || /^\\{3,}/.test(region.type))) {
+        add(base + region.start, 'mixed-delimiter');
+        continue;
+      }
+      if (region.hasVerb) {
+        if (/&(?:#(?:0*43|x0*2b|0*45|x0*2d|0*60|x0*3c)|lt);/i.test(value)) add(base + region.start, 'verbatim');
+        continue;
+      }
+      for (const match of value.matchAll(/&#(?:0*43|x0*2b|0*45|x0*2d);/gi)) add(base + region.start + match.index, 'encoded-operator');
+      for (const match of value.matchAll(/&(?:lt|#0*60|#x0*3c);/gi)) add(base + region.start + match.index, 'less-than');
+      for (const match of value.matchAll(/&(?:#0*126|#x0*7e|tilde);/gi)) add(base + region.start + match.index, 'tilde');
+      // A row break in an explicit environment or a braced argument is ambiguous;
+      // avoid presenting identifiable row constructs as broken commands.
+      if (!/\\begin\s*\{/.test(value)) {
+        const candidate = scan.slice(region.start, region.end);
+        let depth = 0;
+        for (let i = 0; i < candidate.length; i += 1) {
+          if (candidate[i] === '\\') {
+            if (depth === 0 && candidate[i + 1] === '\\' && /[A-Za-z]/.test(candidate[i + 2] || '')) add(base + region.start + i, 'doubled-command');
+            i += 1;
+          } else if (candidate[i] === '{') depth += 1;
+          else if (candidate[i] === '}') depth = Math.max(0, depth - 1);
+        }
+      }
+    }
+    return part;
+  });
+  return found.sort((a, b) => a.line - b.line);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +697,7 @@ function renderPair(pair, options) {
     lines.push(
       pair.answer.text === ''
         ? renderEmptyAnswerPlaceholder(pair.answer.ts, { offsetMinutes })
-        : stripSourceMarkers(convertLatexDelimiters(pair.answer.text))
+        : stripSourceMarkers(convertAnswerLatexDelimiters(pair.answer.text))
     );
   }
 

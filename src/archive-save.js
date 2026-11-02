@@ -1,6 +1,7 @@
 // Read the current note before making a save decision. Failed reads never mean
 // absence, and a second read protects edits made while the preview was open.
 import { planModeSave, renderModeSave } from './save-mode.js';
+import { diagnoseMath, diagnoseSentenceSourceMarkers } from './markdown-assembler.js';
 import { buildVaultUrl, writeVaultFile } from './vault-writer.js';
 
 export async function readVaultFile({ path, apiKey, origin, fetchImpl }) {
@@ -49,5 +50,6 @@ export async function saveArchive(options) {
   if (!latest.ok) return latest;
   if (latest.content !== initial.content) return { ok: false, status: 0, url: initial.url,
     action: 'blocked', reason: 'target changed during preview; rerun without overwriting edits' };
-  return { ...await writeVaultFile({ ...options, content }), action: plan.action, newTurnCount };
+  const written = await writeVaultFile({ ...options, content });
+  return { ...written, action: plan.action, newTurnCount, ...(written.ok ? { mathDiagnostics: [...diagnoseMath(content), ...diagnoseSentenceSourceMarkers(content)].sort((a, b) => a.line - b.line) } : {}) };
 }
