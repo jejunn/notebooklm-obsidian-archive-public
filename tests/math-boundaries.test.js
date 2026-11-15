@@ -171,3 +171,21 @@ test('unmatched environment ends cannot claim unrelated following math', () => {
     expect(convertAnswerLatexDelimiters(input)).toBe(prefix + '\n$z + w$');
   }
 });
+
+test('environment row ownership preserves physical newline formats', () => {
+  for (const nl of ['\n', '\r', '\r\n']) for (const glyph of [')', ']']) for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+    for (const inner of ['', String.raw`\begin{matrix} a \end{matrix}`]) {
+      const input = [String.raw`$\begin{matrix} ` + (inner || 'a') + '\\\\' + glyph, comment, String.raw`b\end{matrix}$`].join(nl);
+      expect(convertLatexDelimiters(input)).toBe(input);
+      expect(convertAnswerLatexDelimiters(input)).toBe(input);
+      expect(diagnoseMath(input)).toEqual([]);
+    }
+  }
+});
+
+test('real whitespace-only physical lines stop environment ownership', () => {
+  for (const [first, second, spaces] of [['\r\n','\r\n',''], ['\r\n','\r',' \t'], ['\r','\n','\t'], ['\n','\r\n',' ']]) {
+    const input = String.raw`$\begin{matrix} a\\)` + first + spaces + second + String.raw`$z &#43; w$` + first + String.raw`\end{matrix}$`;
+    expect(convertAnswerLatexDelimiters(input)).toContain('$z + w$');
+  }
+});

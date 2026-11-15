@@ -325,6 +325,29 @@ function convertSegment(lines, token, env, processor, baseOffset, protectLiteral
   return converted + processor(segment.slice(cursor), baseOffset + cursor);
 }
 
+// Return the width of one physical line ending; CRLF is indivisible.
+function lineEndingWidth(text, offset) {
+  if (text[offset] === '\r') return text[offset + 1] === '\n' ? 2 : 1;
+  return text[offset] === '\n' ? 1 : 0;
+}
+
+function blankLineAfter(text, offset) {
+  const width = lineEndingWidth(text, offset);
+  if (!width) return false;
+  let next = offset + width;
+  while (text[next] === ' ' || text[next] === '\t') next += 1;
+  return lineEndingWidth(text, next) > 0;
+}
+
+function beforeBlankLine(text) {
+  for (let i = 0; i < text.length;) {
+    const width = lineEndingWidth(text, i);
+    if (width && blankLineAfter(text, i)) return text.slice(0, i);
+    i += width || 1;
+  }
+  return text;
+}
+
 // A row is owned only by an environment open at the row whose nesting
 // closes in order before another math delimiter or paragraph boundary.
 function hasClosingTexEnvironment(text, start, row) {
@@ -336,7 +359,9 @@ function hasClosingTexEnvironment(text, start, row) {
       rowDepth = scopes.length;
       if (!rowDepth) return false;
     }
-    if (i > row && (text[i] === '$' || /^(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text.slice(i)))) return false;
+    const lineWidth = lineEndingWidth(text, i);
+    if (i > row && (text[i] === '$' || (lineWidth && blankLineAfter(text, i)))) return false;
+    if (lineWidth) { i += lineWidth; continue; }
     if (text[i] === '%') {
       const end = text.slice(i).search(/[\r\n]/);
       i = end < 0 ? text.length : i + end;
@@ -484,7 +509,7 @@ function mathRegions(text) {
       (dollar && top.type !== type && top.type !== '$' && top.type !== '$$');
     // An explicit display owner with its own later closing delimiter keeps
     // ambiguous contents together; otherwise recover on the physical line.
-    const remaining = text.slice(token.lastIndex).split(/\r?\n[ \t]*\r?\n|\r[ \t]*\r/)[0];
+    const remaining = beforeBlankLine(text.slice(token.lastIndex));
     const displayOwnerCloses = (top.type === '$$' && /(?<![\\$])\$\$(?!\$)/.test(remaining)) ||
       (/^\\{1,2}\[\]$/.test(top.type) &&
       new RegExp(`(?<!\\\\)${'\\\\'.repeat(top.type.length - 2)}\\]`).test(remaining));

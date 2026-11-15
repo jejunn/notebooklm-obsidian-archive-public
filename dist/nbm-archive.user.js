@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4760 of the bundle below.
+// CONFIG starts at line 4790 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3543,6 +3543,31 @@ OTHER DEALINGS IN THE SOFTWARE.
     }
     return converted + processor(segment.slice(cursor), baseOffset + cursor);
   }
+  function lineEndingWidth(text, offset) {
+    if (text[offset] === "\r")
+      return text[offset + 1] === `
+` ? 2 : 1;
+    return text[offset] === `
+` ? 1 : 0;
+  }
+  function blankLineAfter(text, offset) {
+    const width = lineEndingWidth(text, offset);
+    if (!width)
+      return false;
+    let next = offset + width;
+    while (text[next] === " " || text[next] === "\t")
+      next += 1;
+    return lineEndingWidth(text, next) > 0;
+  }
+  function beforeBlankLine(text) {
+    for (let i = 0;i < text.length; ) {
+      const width = lineEndingWidth(text, i);
+      if (width && blankLineAfter(text, i))
+        return text.slice(0, i);
+      i += width || 1;
+    }
+    return text;
+  }
   function hasClosingTexEnvironment(text, start, row) {
     const scopes = [];
     let depth = 0;
@@ -3553,8 +3578,13 @@ OTHER DEALINGS IN THE SOFTWARE.
         if (!rowDepth)
           return false;
       }
-      if (i > row && (text[i] === "$" || /^(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text.slice(i))))
+      const lineWidth = lineEndingWidth(text, i);
+      if (i > row && (text[i] === "$" || lineWidth && blankLineAfter(text, i)))
         return false;
+      if (lineWidth) {
+        i += lineWidth;
+        continue;
+      }
       if (text[i] === "%") {
         const end = text.slice(i).search(/[\r\n]/);
         i = end < 0 ? text.length : i + end;
@@ -3706,7 +3736,7 @@ OTHER DEALINGS IN THE SOFTWARE.
         continue;
       }
       const mismatchedCloser = slash && !isOpen && top.type !== type || dollar && top.type !== type && top.type !== "$" && top.type !== "$$";
-      const remaining = text.slice(token.lastIndex).split(/\r?\n[ \t]*\r?\n|\r[ \t]*\r/)[0];
+      const remaining = beforeBlankLine(text.slice(token.lastIndex));
       const displayOwnerCloses = top.type === "$$" && /(?<![\\$])\$\$(?!\$)/.test(remaining) || /^\\{1,2}\[\]$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
       const sameLine = remaining.split(/[\r\n]/, 1)[0];
       const sameLineOwnerCloses = top.type === "$" ? /(?<![\\$])\$(?!\$)/.test(sameLine) : /^\\{1,2}\(\)$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\)`).test(sameLine);

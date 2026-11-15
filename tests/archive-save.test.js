@@ -262,3 +262,16 @@ test('saved nested TeX environments retain row comments without spurious notices
     expect(result.mathDiagnostics).toEqual([]);
   }
 });
+
+test('first save preserves TeX row comments across physical newline formats', async () => {
+  for (const nl of ['\n','\r','\r\n']) for (const glyph of [')', ']']) for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+    for (const inner of ['', String.raw`\begin{matrix} a \end{matrix}`]) {
+      const answer = [String.raw`$\begin{matrix} ` + (inner || 'a') + '\\\\' + glyph, comment, String.raw`b\end{matrix}$`].join(nl);
+      const h = harness(null, {mode:'first'});
+      const candidate = turns.map((turn, i) => i === 1 ? {...turn, text:answer} : turn);
+      const result = await h.run({turns:candidate});
+      expect(h.content()).toContain(answer);
+      expect(result.mathDiagnostics).toEqual([]);
+    }
+  }
+});
