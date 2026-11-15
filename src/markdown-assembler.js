@@ -427,18 +427,19 @@ function convertMath(text, repairMissingOpener = false) {
     result += text.slice(cursor, region.start);
     const original = text.slice(region.start, region.end);
     if (region.ambiguous || region.hasVerb || region.hasComment) result += original;
-    else if (region.type === '$' || region.type === '$$') result += convertDollarMath(original);
+    else if (region.type === '$' || region.type === '$$') result += convertDollarMath(original, repairMissingOpener);
     else if (/^\\{1,2}(?:\(\)|\[\])$/.test(region.type)) {
       const width = region.type.length - 2;
       const marker = region.type.endsWith('[]') ? '$$' : '$';
-      result += convertDollarMath(marker + original.slice(width + 1, -(width + 1)) + marker);
+      result += convertDollarMath(marker + original.slice(width + 1, -(width + 1)) + marker, repairMissingOpener);
     } else result += original;
     cursor = region.end;
   }
   return result + text.slice(cursor);
 }
 
-function convertDollarMath(text) {
+function convertDollarMath(text, repairSimpleText = false) {
+  if (repairSimpleText) text = text.replace(/^\$\\\\text\{([^\\{}%#$&_\^~\r\n]+)\}\$$/, (_match, content) => `$\\text{${content}}$`);
   return text.replace(/(?<![\\$])(\${1,2})(?!\$)(?:(?!\n[ \t]*\n)[\s\S])*?(?<![\\$])\1(?!\$)/g, (math) => {
     // Unknown macro arguments and unbalanced braces are not operator context.
     let depth = 0;

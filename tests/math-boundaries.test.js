@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { convertLatexDelimiters, diagnoseMath } from '../src/markdown-assembler.js';
+import { convertLatexDelimiters, convertAnswerLatexDelimiters, diagnoseMath } from '../src/markdown-assembler.js';
 
 const inside = String.raw`$\\rho &#43; 1$`;
 const prose = String.raw`$\\Delta &#45; 2$`;
@@ -40,4 +40,27 @@ test('block transitions, multiline code and mapping failures are conservative', 
   const fence = 'start \\[\n~~~\n' + inside + '\n~~~\n\\]';
   expect(convertLatexDelimiters(fence + '\n\n' + prose)).toBe(fence + '\n\n' + repaired);
   expect(convertLatexDelimiters('    ' + inside + '\n\n' + prose)).toBe('    ' + inside + '\n\n' + repaired);
+});
+
+test('answer repairs a whole simple doubled text command in one pass', () => {
+  const expected = String.raw`$\text{OH}$`;
+  for (const input of [String.raw`$\\text{OH}$`, String.raw`\(\\text{OH}\)`, String.raw`\\(\\text{OH}\\)`]) {
+    expect(convertAnswerLatexDelimiters(input)).toBe(expected);
+    expect(convertAnswerLatexDelimiters(expected)).toBe(expected);
+    expect(convertLatexDelimiters(input)).toBe(String.raw`$\\text{OH}$`);
+  }
+  expect(convertAnswerLatexDelimiters(String.raw`A $\\text{OH}$ and \(\\text{Na}\) B`)).toBe(String.raw`A $\text{OH}$ and $\text{Na}$ B`);
+});
+
+test('answer preserves complex doubled commands and protected regions', () => {
+  for (const input of [
+    String.raw`$\text{OH}$`, String.raw`$\\text{}$`, String.raw`$\\frac{1}{2}$`, String.raw`$x + \\text{OH}$`,
+    String.raw`$$\\text{OH}$$`, String.raw`$\\text{a{b}}$`, String.raw`$\\text{a\%b}$`,
+    String.raw`$\\text{a%b}$`, String.raw`$\\text{a#b}$`, String.raw`$\\text{a_b}$`,
+    '$\\\\text{a\nb}$', String.raw`$\begin{matrix}a\\text{OH}\end{matrix}$`,
+    String.raw`$\begin{aligned}a&=b\\text{OH}\end{aligned}$`,
+    String.raw`\verb|$\\text{OH}$|`, '`$\\\\text{OH}$`', '[x $\\\\text{OH}$](url)',
+    '\\begin{verbatim}\n$\\\\text{OH}$\n\\end{verbatim}',
+  ]) expect(convertAnswerLatexDelimiters(input)).toBe(input);
+  expect(diagnoseMath(String.raw`$\\frac{1}{2}$`)).toContainEqual({line: 1, kind: 'doubled-command'});
 });
