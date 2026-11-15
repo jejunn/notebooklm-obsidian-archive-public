@@ -122,3 +122,15 @@ test('chained and call indexing are not source notices', () => {
   expect(diagnoseSentenceSourceMarkers(body)).toEqual([]);
   expect(diagnoseSentenceSourceMarkers('Energy $x$[2].')).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
 });
+
+test('escaped verbatim end does not expose a fake reference definition', () => {
+  const body = String.raw`$x$[1].
+
+\begin{verbatim}
+\\end{verbatim}
+
+[1]: https://example.com
+\end{verbatim}`;
+  expect(diagnoseSentenceSourceMarkers(body)).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
+  expect(archive(body)).toContain(body);
+});

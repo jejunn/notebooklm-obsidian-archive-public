@@ -114,3 +114,19 @@ test('closed display math preserves comments and answer commands in all supporte
     }
   }
 });
+
+test('inline math owners retain same-line closers and braced row breaks', () => {
+  const inline = String.raw`$x\] &#43; y$
+$z &#43; w$`;
+  const output = String.raw`$x\] &#43; y$
+$z + w$`;
+  expect(diagnoseMath(inline)).toEqual([{line:1, kind:'mixed-delimiter'}, {line:2, kind:'encoded-operator'}]);
+  expect(convertLatexDelimiters(inline)).toBe(output);
+  expect(convertAnswerLatexDelimiters(inline)).toBe(output);
+  for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+    const input = String.raw`$x_{\substack{a\\]` + '\n' + comment + '\n' + String.raw`b}}$`;
+    expect(convertLatexDelimiters(input)).toBe(input);
+    expect(convertAnswerLatexDelimiters(input)).toBe(input);
+    expect(diagnoseMath(input)).toEqual([]);
+  }
+});

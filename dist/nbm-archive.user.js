@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4683 of the bundle below.
+// CONFIG starts at line 4693 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3345,24 +3345,9 @@ OTHER DEALINGS IN THE SOFTWARE.
   function diagnoseSentenceSourceMarkers(text) {
     const found = [];
     const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map((m) => m[1]));
-    const protectedLines = new Set;
-    for (const token of markdownBlocks.parse(text, {})) {
-      if (token.map && ["fence", "code_block", "html_block"].includes(token.type))
-        for (let line = token.map[0];line < token.map[1]; line += 1)
-          protectedLines.add(line);
-    }
-    let literal = false;
-    let lineNumber = 0;
-    const referenceText = text.replace(/[^\r\n]*(?:\r\n|\r|\n|$)/g, (line) => {
-      if (protectedLines.has(lineNumber++))
-        return line;
-      if (/\\begin\s*\{(?:verbatim\*?|Verbatim\*?)\}/.test(line))
-        literal = true;
-      const masked = literal ? line.replace(/[^\r\n]/g, " ") : line;
-      if (/\\end\s*\{(?:verbatim\*?|Verbatim\*?)\}/.test(line))
-        literal = false;
-      return masked;
-    });
+    const referenceLines = text.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g) ?? [];
+    const literalLines = texLiteralLines(referenceLines);
+    const referenceText = referenceLines.map((line, index) => literalLines.has(index) ? line.replace(/[^\r\n]/g, " ") : line).join("");
     const markdownEnv = {};
     markdownBlocks.parse(referenceText, markdownEnv);
     const realReferences = new Set(Object.keys(markdownEnv.references ?? {}));
@@ -3413,7 +3398,7 @@ OTHER DEALINGS IN THE SOFTWARE.
         add(offset);
         return whole;
       });
-    }, true);
+    }, true, markdownEnv.references ?? {});
     return found.sort((a, b) => a.line - b.line);
   }
   function convertLatexDelimiters(text) {
@@ -3422,43 +3407,48 @@ OTHER DEALINGS IN THE SOFTWARE.
   function convertAnswerLatexDelimiters(text) {
     return processMathBlocks(text, (part) => convertMath(part, true), true);
   }
-  function processMathBlocks(text, processor, protectLiteral = false) {
+  function texLiteralLines(lines) {
+    const literalLines = new Set;
+    let environment = null;
+    for (let line = 0;line < lines.length; line += 1) {
+      let cursor = 0;
+      let owned = environment !== null;
+      const startPattern = /(?<!\\)\\begin\s*\{(verbatim\*?|Verbatim\*?)\}/g;
+      while (cursor < lines[line].length) {
+        if (environment) {
+          const end = `\\end{${environment}}`;
+          let index = lines[line].indexOf(end, cursor);
+          while (index > 0 && lines[line][index - 1] === "\\")
+            index = lines[line].indexOf(end, index + end.length);
+          if (index < 0)
+            break;
+          cursor = index + end.length;
+          environment = null;
+        } else {
+          startPattern.lastIndex = cursor;
+          const start = startPattern.exec(lines[line]);
+          if (!start)
+            break;
+          owned = true;
+          environment = start[1];
+          cursor = startPattern.lastIndex;
+        }
+      }
+      if (owned)
+        literalLines.add(line);
+    }
+    return literalLines;
+  }
+  function processMathBlocks(text, processor, protectLiteral = false, referenceOverride = null) {
     if (typeof text !== "string") {
       throw new CoreHardError("text is not a string (§1.2)");
     }
     const lines = text.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g) ?? [];
     const protectedLines = new Set;
     const inlineBlocks = new Map;
-    if (protectLiteral) {
-      let environment = null;
-      for (let line = 0;line < lines.length; line += 1) {
-        let cursor = 0;
-        let owned = environment !== null;
-        const startPattern = /(?<!\\)\\begin\s*\{(verbatim\*?|Verbatim\*?)\}/g;
-        while (cursor < lines[line].length) {
-          if (environment) {
-            const end = `\\end{${environment}}`;
-            let index = lines[line].indexOf(end, cursor);
-            while (index > 0 && lines[line][index - 1] === "\\")
-              index = lines[line].indexOf(end, index + end.length);
-            if (index < 0)
-              break;
-            cursor = index + end.length;
-            environment = null;
-          } else {
-            startPattern.lastIndex = cursor;
-            const start = startPattern.exec(lines[line]);
-            if (!start)
-              break;
-            owned = true;
-            environment = start[1];
-            cursor = startPattern.lastIndex;
-          }
-        }
-        if (owned)
-          protectedLines.add(line);
-      }
-    }
+    if (protectLiteral)
+      for (const line of texLiteralLines(lines))
+        protectedLines.add(line);
     const env = {};
     for (const token of markdownBlocks.parse(text, env)) {
       if (!token.map)
@@ -3471,6 +3461,8 @@ OTHER DEALINGS IN THE SOFTWARE.
           inlineBlocks.set(line, token);
       }
     }
+    if (referenceOverride !== null)
+      env.references = referenceOverride;
     const output = [];
     let prose = [];
     let currentBlock = null;
@@ -3625,6 +3617,22 @@ OTHER DEALINGS IN THE SOFTWARE.
         continue;
       }
       const top = stack.at(-1);
+      let braceDepth = 0;
+      const ownedPrefix = text.slice(start, match.index);
+      for (let i = 0;i < ownedPrefix.length; i += 1) {
+        if (ownedPrefix[i] === "\\") {
+          i += 1;
+          continue;
+        }
+        if (ownedPrefix[i] === "{")
+          braceDepth += 1;
+        else if (ownedPrefix[i] === "}")
+          braceDepth = Math.max(0, braceDepth - 1);
+      }
+      if (braceDepth > 0 && slash === "\\\\" && glyph === "]") {
+        top.after = token.lastIndex;
+        continue;
+      }
       const environment = [...text.slice(start, match.index).matchAll(/(?<!\\)\\begin\s*\{([^{}]+)\}/g)].at(-1);
       if (environment && slash === "\\\\" && glyph === "]" && !text.slice(environment.index, match.index).includes(`\\end{${environment[1]}}`) && text.slice(token.lastIndex).includes(`\\end{${environment[1]}}`)) {
         top.after = token.lastIndex;
@@ -3633,7 +3641,9 @@ OTHER DEALINGS IN THE SOFTWARE.
       const mismatchedCloser = slash && !isOpen && top.type !== type || dollar && top.type !== type && top.type !== "$" && top.type !== "$$";
       const remaining = text.slice(token.lastIndex).split(/\r?\n[ \t]*\r?\n|\r[ \t]*\r/)[0];
       const displayOwnerCloses = top.type === "$$" && /(?<![\\$])\$\$(?!\$)/.test(remaining) || /^\\{1,2}\[\]$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
-      if (stack.length === 1 && mismatchedCloser && !displayOwnerCloses && !/[\r\n]/.test(text.slice(start, match.index))) {
+      const sameLine = remaining.split(/[\r\n]/, 1)[0];
+      const sameLineOwnerCloses = top.type === "$" ? /(?<![\\$])\$(?!\$)/.test(sameLine) : /^\\{1,2}\(\)$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\)`).test(sameLine);
+      if (stack.length === 1 && mismatchedCloser && !displayOwnerCloses && !sameLineOwnerCloses && !/[\r\n]/.test(text.slice(start, match.index))) {
         regions.push({ start, end: token.lastIndex, ambiguous: true });
         stack = [];
         continue;
