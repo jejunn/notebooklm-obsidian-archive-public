@@ -388,6 +388,17 @@ function mathRegions(text) {
       continue;
     }
     const top = stack.at(-1);
+    // Recover after a mismatched closer at the end of its opening line.
+    // Otherwise an invalid line can consume unrelated math on following lines.
+    const mismatchedCloser = (slash && !isOpen && top.type !== type) ||
+      (dollar && top.type !== type && top.type !== '$' && top.type !== '$$');
+    if (stack.length === 1 && mismatchedCloser &&
+        !/[\r\n]/.test(text.slice(start, match.index)) &&
+        /^[ \t]*(?:\r\n|\r|\n|$)/.test(text.slice(token.lastIndex))) {
+      regions.push({start, end:token.lastIndex, ambiguous:true});
+      stack = [];
+      continue;
+    }
     if ((dollar && top.type === type) || (slash && !isOpen && top.type === type)) {
       stack.pop();
       if (!stack.length) {

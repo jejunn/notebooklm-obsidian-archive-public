@@ -212,3 +212,29 @@ test('first and appended saves report preserved ambiguous markers at saved line 
     expect(result.mathDiagnostics).toContainEqual({line,kind:'ambiguous-source-marker'});
   }
 });
+
+test('first and review saves report unresolved candidates on saved lines and repeat without changes', async () => {
+  const answer = String.raw`$x\]
+\(y$
+$z &#43; w$
+Math $a$[2] and $b\text{ [3]}$ remain.`;
+  for (const [initial, index] of [[null, 1], [base, 5]]) {
+    const h = harness(initial, initial === null ? {mode:'first'} : {});
+    const candidate = turns.map((turn, i) => i === index ? {...turn, text:answer} : turn);
+    const result = await h.run({turns:candidate});
+    const saved = h.content();
+    const lines = saved.split('\n');
+    const line = fragment => lines.findIndex(s => s.includes(fragment)) + 1;
+    expect(result.mathDiagnostics).toEqual([
+      {line:line('$x\\]'), kind:'mixed-delimiter'},
+      {line:line('\\(y$'), kind:'mixed-delimiter'},
+      {line:line('Math $a$'), kind:'ambiguous-source-marker'},
+    ]);
+    expect(saved).toContain('$z + w$');
+    if (initial !== null) expect(saved).toContain('사용자가 남긴 메모');
+    if (initial !== null) {
+      expect((await h.run({turns:candidate})).action).toBe('noop');
+      expect(h.content()).toBe(saved);
+    }
+  }
+});

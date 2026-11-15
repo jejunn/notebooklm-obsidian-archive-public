@@ -64,3 +64,18 @@ test('answer preserves complex doubled commands and protected regions', () => {
   ]) expect(convertAnswerLatexDelimiters(input)).toBe(input);
   expect(diagnoseMath(String.raw`$\\frac{1}{2}$`)).toContainEqual({line: 1, kind: 'doubled-command'});
 });
+
+test('adjacent mixed delimiters recover at the next complete math line', () => {
+  const input = String.raw`$x\]
+\(y$
+$z &#43; w$`;
+  const output = String.raw`$x\]
+\(y$
+$z + w$`;
+  expect(diagnoseMath(input)).toEqual([
+    {line:1, kind:'mixed-delimiter'}, {line:2, kind:'mixed-delimiter'},
+    {line:3, kind:'encoded-operator'},
+  ]);
+  expect(convertAnswerLatexDelimiters(input)).toBe(output);
+  expect(convertAnswerLatexDelimiters(output)).toBe(output);
+});

@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4619 of the bundle below.
+// CONFIG starts at line 4654 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3348,6 +3348,33 @@ OTHER DEALINGS IN THE SOFTWARE.
     processMathBlocks(text, (part, base) => {
       const regions = mathRegions(part);
       const verbs = [...part.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
+      const add = (offset) => {
+        const line = (text.slice(0, base + offset).match(/\r\n|\r|\n/g) ?? []).length + 1;
+        if (!found.some((item) => item.line === line && item.kind === "ambiguous-source-marker"))
+          found.push({ line, kind: "ambiguous-source-marker" });
+      };
+      for (const match of part.matchAll(/\[([1-9]\d*)\]/g)) {
+        const offset = match.index;
+        const prefix = part.slice(0, offset).split(/\r\n|\r|\n/).at(-1);
+        const suffix = part.slice(offset + match[0].length);
+        const region = regions.find((r) => offset >= r.start && offset < r.end);
+        if (references.has(match[1]) || verbs.some((v) => offset >= v.index && offset < v.index + v[0].length))
+          continue;
+        if (region) {
+          const before = part.slice(region.start, offset);
+          const after = part.slice(offset + match[0].length, region.end);
+          if (/\\text\{[ \t]*$/.test(before) && /^\}[ \t]*(?:\${1,2}|\\{1,2}[)\]])$/.test(after))
+            add(offset);
+          continue;
+        }
+        if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix))
+          continue;
+        const afterMath = regions.some((r) => r.end === offset && !r.ambiguous && !r.unclosed);
+        const beforeClose = /\p{L}/u.test(prefix) && /^\)/.test(suffix);
+        const beforeParticle = /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
+        if (afterMath || beforeClose || beforeParticle)
+          add(offset);
+      }
       return part.replace(/([.!?。])([ \t]+)\[([1-9]\d*)\]([ \t]+)(?=[A-Z가-힣])/gu, (whole, punctuation, before, number, after, offset) => {
         const absolute = base + offset;
         const lineStart = Math.max(text.lastIndexOf(`
@@ -3361,11 +3388,11 @@ OTHER DEALINGS IN THE SOFTWARE.
           return whole;
         if (regions.some((region) => region.start < offset + whole.length && region.end > offset) || verbs.some((v) => v.index < offset + whole.length && v.index + v[0].length > offset))
           return whole;
-        found.push({ line: (text.slice(0, absolute).match(/\r\n|\r|\n/g) ?? []).length + 1, kind: "ambiguous-source-marker" });
+        add(offset);
         return whole;
       });
     }, true);
-    return found;
+    return found.sort((a, b) => a.line - b.line);
   }
   function convertLatexDelimiters(text) {
     return processMathBlocks(text, (part) => convertMath(part));
@@ -3576,6 +3603,12 @@ OTHER DEALINGS IN THE SOFTWARE.
         continue;
       }
       const top = stack.at(-1);
+      const mismatchedCloser = slash && !isOpen && top.type !== type || dollar && top.type !== type && top.type !== "$" && top.type !== "$$";
+      if (stack.length === 1 && mismatchedCloser && !/[\r\n]/.test(text.slice(start, match.index)) && /^[ \t]*(?:\r\n|\r|\n|$)/.test(text.slice(token.lastIndex))) {
+        regions.push({ start, end: token.lastIndex, ambiguous: true });
+        stack = [];
+        continue;
+      }
       if (dollar && top.type === type || slash && !isOpen && top.type === type) {
         stack.pop();
         if (!stack.length) {
@@ -3625,18 +3658,20 @@ OTHER DEALINGS IN THE SOFTWARE.
       if (region.ambiguous || region.hasVerb || region.hasComment)
         result += original;
       else if (region.type === "$" || region.type === "$$")
-        result += convertDollarMath(original);
+        result += convertDollarMath(original, repairMissingOpener);
       else if (/^\\{1,2}(?:\(\)|\[\])$/.test(region.type)) {
         const width = region.type.length - 2;
         const marker = region.type.endsWith("[]") ? "$$" : "$";
-        result += convertDollarMath(marker + original.slice(width + 1, -(width + 1)) + marker);
+        result += convertDollarMath(marker + original.slice(width + 1, -(width + 1)) + marker, repairMissingOpener);
       } else
         result += original;
       cursor = region.end;
     }
     return result + text.slice(cursor);
   }
-  function convertDollarMath(text) {
+  function convertDollarMath(text, repairSimpleText = false) {
+    if (repairSimpleText)
+      text = text.replace(/^\$\\\\text\{([^\\{}%#$&_\^~\r\n]+)\}\$$/, (_match, content) => `$\\text{${content}}$`);
     return text.replace(/(?<![\\$])(\${1,2})(?!\$)(?:(?!\n[ \t]*\n)[\s\S])*?(?<![\\$])\1(?!\$)/g, (math) => {
       let depth = 0;
       let balanced = true;
