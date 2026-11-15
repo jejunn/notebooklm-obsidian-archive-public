@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4668 of the bundle below.
+// CONFIG starts at line 4683 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3345,17 +3345,27 @@ OTHER DEALINGS IN THE SOFTWARE.
   function diagnoseSentenceSourceMarkers(text) {
     const found = [];
     const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map((m) => m[1]));
-    const markdownEnv = {};
-    const protectedReferenceLines = new Set;
-    for (const token of markdownBlocks.parse(text, markdownEnv)) {
+    const protectedLines = new Set;
+    for (const token of markdownBlocks.parse(text, {})) {
       if (token.map && ["fence", "code_block", "html_block"].includes(token.type))
         for (let line = token.map[0];line < token.map[1]; line += 1)
-          protectedReferenceLines.add(line);
+          protectedLines.add(line);
     }
-    const realReferences = new Set(text.split(/\r\n|\r|\n/).flatMap((line, index) => {
-      const match = /^[ \t]*\[(\d+)\]:/.exec(line);
-      return match && !protectedReferenceLines.has(index) ? [match[1]] : [];
-    }));
+    let literal = false;
+    let lineNumber = 0;
+    const referenceText = text.replace(/[^\r\n]*(?:\r\n|\r|\n|$)/g, (line) => {
+      if (protectedLines.has(lineNumber++))
+        return line;
+      if (/\\begin\s*\{(?:verbatim\*?|Verbatim\*?)\}/.test(line))
+        literal = true;
+      const masked = literal ? line.replace(/[^\r\n]/g, " ") : line;
+      if (/\\end\s*\{(?:verbatim\*?|Verbatim\*?)\}/.test(line))
+        literal = false;
+      return masked;
+    });
+    const markdownEnv = {};
+    markdownBlocks.parse(referenceText, markdownEnv);
+    const realReferences = new Set(Object.keys(markdownEnv.references ?? {}));
     processMathBlocks(text, (part, base) => {
       const regions = mathRegions(part);
       const verbs = [...part.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
@@ -3381,7 +3391,7 @@ OTHER DEALINGS IN THE SOFTWARE.
         if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix))
           continue;
         const afterMath = regions.some((r) => r.end === offset && !r.ambiguous && !r.unclosed);
-        const compactIndex = /[\p{L}\p{N}_]$/u.test(prefix);
+        const compactIndex = /[\p{L}\p{N}_\])}]$/u.test(prefix);
         const beforeClose = !compactIndex && /\p{L}/u.test(prefix) && /^\)/.test(suffix);
         const beforeParticle = !compactIndex && /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
         if (afterMath || beforeClose || beforeParticle)
@@ -3615,9 +3625,14 @@ OTHER DEALINGS IN THE SOFTWARE.
         continue;
       }
       const top = stack.at(-1);
+      const environment = [...text.slice(start, match.index).matchAll(/(?<!\\)\\begin\s*\{([^{}]+)\}/g)].at(-1);
+      if (environment && slash === "\\\\" && glyph === "]" && !text.slice(environment.index, match.index).includes(`\\end{${environment[1]}}`) && text.slice(token.lastIndex).includes(`\\end{${environment[1]}}`)) {
+        top.after = token.lastIndex;
+        continue;
+      }
       const mismatchedCloser = slash && !isOpen && top.type !== type || dollar && top.type !== type && top.type !== "$" && top.type !== "$$";
       const remaining = text.slice(token.lastIndex).split(/\r?\n[ \t]*\r?\n|\r[ \t]*\r/)[0];
-      const displayOwnerCloses = /^\\{1,2}\[\]$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
+      const displayOwnerCloses = top.type === "$$" && /(?<![\\$])\$\$(?!\$)/.test(remaining) || /^\\{1,2}\[\]$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
       if (stack.length === 1 && mismatchedCloser && !displayOwnerCloses && !/[\r\n]/.test(text.slice(start, match.index))) {
         regions.push({ start, end: token.lastIndex, ambiguous: true });
         stack = [];

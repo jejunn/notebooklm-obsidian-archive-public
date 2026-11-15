@@ -90,7 +90,7 @@ test('preserved ambiguous candidates report their actual lines', () => {
 });
 
 test('diagnostics protect problem numbers, indices, arrays, references and code', () => {
-  const body = '문제 [4-36]을 푼다.\n$a[1]$와 $[1, 2]$\n배열 [1, 2]으로 구성.\nSee [1](https://example.com).\nReference [2]으로 설명.\n[2]: https://example.com\n`설명 [3]으로`\n```text\n설명 [4]으로\n```';
+  const body = '문제 [4-36]을 푼다.\n$a[1]$와 $[1, 2]$\n배열 [1, 2]으로 구성.\nSee [1](https://example.com).\nReference [2]으로 설명.\n\n[2]: https://example.com\n`설명 [3]으로`\n```text\n설명 [4]으로\n```';
   expect(archive(body)).toContain(body);
   expect(diagnoseSentenceSourceMarkers(body)).toEqual([]);
 });
@@ -105,4 +105,20 @@ test('a reference-looking fenced example does not hide a math-adjacent candidate
   const body = '$x$[1].\n\n```md\n[1]: example\n```';
   expect(archive(body)).toContain(body);
   expect(diagnoseSentenceSourceMarkers(body)).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
+});
+
+test('only valid, unprotected reference definitions suppress new candidates', () => {
+  for (const suffix of ['[1]: no actual definition here', String.raw`\begin{verbatim}
+[1]: example
+\end{verbatim}`]) {
+    const body = `$x$[1].\n\n${suffix}`;
+    expect(diagnoseSentenceSourceMarkers(body)).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
+  }
+  expect(diagnoseSentenceSourceMarkers('$x$[1].\n\n[1]: https://example.com')).toEqual([]);
+});
+
+test('chained and call indexing are not source notices', () => {
+  const body = 'Evaluate (table[i][2]).\nEvaluate (values()[2]).\ntable[i][3]와 values()[4]을 비교한다.';
+  expect(diagnoseSentenceSourceMarkers(body)).toEqual([]);
+  expect(diagnoseSentenceSourceMarkers('Energy $x$[2].')).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
 });

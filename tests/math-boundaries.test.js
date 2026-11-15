@@ -103,3 +103,14 @@ test('recovery handles trailing punctuation, formatting and particles without sw
     expect(convertLatexDelimiters(input)).toBe(`${first}\n${second}\n$z + w$`);
   }
 });
+
+test('closed display math preserves comments and answer commands in all supported delimiters', () => {
+  for (const [open, close] of [['$$', '$$'], [String.raw`\[`, String.raw`\]`], [String.raw`\\[`, String.raw`\\]`]]) {
+    for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+      const input = `${open}\\begin{matrix} a\\\\]\n${comment}\nb\\end{matrix}${close}`;
+      expect(convertLatexDelimiters(input)).toBe(input);
+      expect(convertAnswerLatexDelimiters(input)).toBe(input);
+      expect(diagnoseMath(input)).toEqual([]);
+    }
+  }
+});
