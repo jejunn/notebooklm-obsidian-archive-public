@@ -251,3 +251,14 @@ test('save preserves row breaks before right parentheses and their TeX comments'
     }
   }
 });
+
+test('saved nested TeX environments retain row comments without spurious notices', async () => {
+  for (const [glyph, comment] of [[')', String.raw`% $z &#43; w$`], [']', String.raw`% $\\text{OH}$`]]) {
+    const answer = String.raw`$\begin{matrix} \begin{matrix} a \end{matrix}\\` + glyph + '\n' + comment + '\n' + String.raw`b\end{matrix}$`;
+    const h = harness(null, {mode:'first'});
+    const candidate = turns.map((turn, i) => i === 1 ? {...turn, text:answer} : turn);
+    const result = await h.run({turns:candidate});
+    expect(h.content()).toContain(answer);
+    expect(result.mathDiagnostics).toEqual([]);
+  }
+});

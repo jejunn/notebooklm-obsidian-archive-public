@@ -325,6 +325,63 @@ function convertSegment(lines, token, env, processor, baseOffset, protectLiteral
   return converted + processor(segment.slice(cursor), baseOffset + cursor);
 }
 
+// A row is owned only by an environment open at the row whose nesting
+// closes in order before another math delimiter or paragraph boundary.
+function hasClosingTexEnvironment(text, start, row) {
+  const scopes = [];
+  let depth = 0;
+  let rowDepth = 0;
+  for (let i = start; i < text.length;) {
+    if (i === row) {
+      rowDepth = scopes.length;
+      if (!rowDepth) return false;
+    }
+    if (i > row && (text[i] === '$' || /^(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/.test(text.slice(i)))) return false;
+    if (text[i] === '%') {
+      const end = text.slice(i).search(/[\r\n]/);
+      i = end < 0 ? text.length : i + end;
+      continue;
+    }
+    if (text[i] === '\\') {
+      if (text[i + 1] === '\\') { i += 2; continue; }
+      const verb = /^\\verb\*?(?![A-Za-z])([^\r\n])/.exec(text.slice(i));
+      if (verb) {
+        const end = text.indexOf(verb[1], i + verb[0].length);
+        const lineEnd = text.slice(i + verb[0].length).search(/[\r\n]/);
+        if (end < 0 || (lineEnd >= 0 && end >= i + verb[0].length + lineEnd)) return false;
+        i = end + 1;
+        continue;
+      }
+      const command = /^\\(begin|end)\s*\{([^{}]+)\}/.exec(text.slice(i));
+      if (command && depth === 0) {
+        if (command[1] === 'begin' && /^(?:verbatim\*?|Verbatim\*?)$/.test(command[2])) {
+          const end = `\\end{${command[2]}}`;
+          let index = text.indexOf(end, i + command[0].length);
+          while (index > 0 && text[index - 1] === '\\') index = text.indexOf(end, index + end.length);
+          if (index < 0 || (i < row && index >= row)) return false;
+          i = index + end.length;
+          continue;
+        }
+        if (command[1] === 'begin') scopes.push(command[2]);
+        else {
+          if (scopes.at(-1) !== command[2]) return false;
+          scopes.pop();
+          if (rowDepth && scopes.length < rowDepth) return true;
+        }
+        i += command[0].length;
+        continue;
+      }
+      if (i > row && /[\[\]()]/.test(text[i + 1] || '')) return false;
+      i += Math.min(2, text.length - i);
+      continue;
+    }
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}') depth = Math.max(0, depth - 1);
+    i += 1;
+  }
+  return false;
+}
+
 // Find complete delimiter regions before changing any bytes. Nested or mixed
 // pairs are ambiguous and remain untouched. Verbatim contents are opaque.
 function mathRegions(text) {
@@ -416,10 +473,8 @@ function mathRegions(text) {
     }
     // In a TeX environment, a double slash can be a row break followed by
     // a literal bracket or parenthesis, even when it resembles a closer.
-    const environment = [...text.slice(start, match.index).matchAll(/(?<!\\)\\begin\s*\{([^{}]+)\}/g)].at(-1);
-    if (environment && slash === '\\\\' && (glyph === ']' || glyph === ')') &&
-        !text.slice(environment.index, match.index).includes(`\\end{${environment[1]}}`) &&
-        text.slice(token.lastIndex).includes(`\\end{${environment[1]}}`)) {
+    if (slash === '\\\\' && (glyph === ']' || glyph === ')') &&
+        hasClosingTexEnvironment(text, start, match.index)) {
       top.after = token.lastIndex;
       continue;
     }

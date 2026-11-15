@@ -143,3 +143,31 @@ test('row breaks before right parentheses and brackets keep owned TeX comments i
   expect(convertLatexDelimiters(String.raw`\\(x\\)`)).toBe('$x$');
   expect(convertLatexDelimiters(String.raw`\(x\)`)).toBe('$x$');
 });
+
+test('nested environment ownership survives closed inner scopes and ignores fake commands', () => {
+  for (const inner of ['matrix', 'aligned']) for (const glyph of [')', ']']) for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+    const input = String.raw`$\begin{matrix} \begin{` + inner + String.raw`} a \end{` + inner + String.raw`}\\` + glyph + '\n' + comment + '\n' + String.raw`b\end{matrix}$`;
+    expect(convertLatexDelimiters(input)).toBe(input);
+    expect(convertAnswerLatexDelimiters(input)).toBe(input);
+    expect(diagnoseMath(input)).toEqual([]);
+  }
+  const fake = String.raw`$\begin{matrix} \text{\end{matrix}} \verb|\end{matrix}|
+% \end{matrix}
+\\)
+% $z &#43; w$
+b\end{matrix}$`;
+  expect(convertAnswerLatexDelimiters(fake)).toBe(fake);
+  expect(diagnoseMath(fake)).toEqual([]);
+  const literal = String.raw`$\begin{matrix} \begin{verbatim}\end{matrix}\end{verbatim}\\)
+% $z &#43; w$
+b\end{matrix}$`;
+  expect(convertLatexDelimiters(literal)).toBe(literal);
+  expect(diagnoseMath(literal)).toEqual([]);
+});
+
+test('unmatched environment ends cannot claim unrelated following math', () => {
+  for (const prefix of [String.raw`$\begin{matrix} \end{aligned}\\)`, String.raw`$\text{\begin{matrix}}\\)`, String.raw`$\\begin{matrix}\\)`]) {
+    const input = prefix + '\n$z &#43; w$';
+    expect(convertAnswerLatexDelimiters(input)).toBe(prefix + '\n$z + w$');
+  }
+});
