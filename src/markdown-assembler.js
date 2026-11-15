@@ -121,6 +121,16 @@ const INLINE_MATH = /(?<!\\)(\\{1,2})\(([\s\S]*?)(?<!\\)\1\)/g;
 export function diagnoseSentenceSourceMarkers(text) {
   const found = [];
   const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map(m => m[1]));
+  const markdownEnv = {};
+  const protectedReferenceLines = new Set();
+  for (const token of markdownBlocks.parse(text, markdownEnv)) {
+    if (token.map && ['fence', 'code_block', 'html_block'].includes(token.type))
+      for (let line = token.map[0]; line < token.map[1]; line += 1) protectedReferenceLines.add(line);
+  }
+  const realReferences = new Set(text.split(/\r\n|\r|\n/).flatMap((line, index) => {
+    const match = /^[ \t]*\[(\d+)\]:/.exec(line);
+    return match && !protectedReferenceLines.has(index) ? [match[1]] : [];
+  }));
   processMathBlocks(text, (part, base) => {
     const regions = mathRegions(part);
     const verbs = [...part.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
@@ -136,7 +146,7 @@ export function diagnoseSentenceSourceMarkers(text) {
       const prefix = part.slice(0, offset).split(/\r\n|\r|\n/).at(-1);
       const suffix = part.slice(offset + match[0].length);
       const region = regions.find(r => offset >= r.start && offset < r.end);
-      if (references.has(match[1]) || verbs.some(v => offset >= v.index && offset < v.index + v[0].length)) continue;
+      if (realReferences.has(match[1]) || verbs.some(v => offset >= v.index && offset < v.index + v[0].length)) continue;
       if (region) {
         const before = part.slice(region.start, offset);
         const after = part.slice(offset + match[0].length, region.end);
@@ -145,8 +155,9 @@ export function diagnoseSentenceSourceMarkers(text) {
       }
       if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix)) continue;
       const afterMath = regions.some(r => r.end === offset && !r.ambiguous && !r.unclosed);
-      const beforeClose = /\p{L}/u.test(prefix) && /^\)/.test(suffix);
-      const beforeParticle = /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
+      const compactIndex = /[\p{L}\p{N}_]$/u.test(prefix);
+      const beforeClose = !compactIndex && /\p{L}/u.test(prefix) && /^\)/.test(suffix);
+      const beforeParticle = !compactIndex && /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
       if (afterMath || beforeClose || beforeParticle) add(offset);
     }
     return part.replace(/([.!?。])([ \t]+)\[([1-9]\d*)\]([ \t]+)(?=[A-Z가-힣])/gu, (whole, punctuation, before, number, after, offset) => {
@@ -392,9 +403,13 @@ function mathRegions(text) {
     // Otherwise an invalid line can consume unrelated math on following lines.
     const mismatchedCloser = (slash && !isOpen && top.type !== type) ||
       (dollar && top.type !== type && top.type !== '$' && top.type !== '$$');
-    if (stack.length === 1 && mismatchedCloser &&
-        !/[\r\n]/.test(text.slice(start, match.index)) &&
-        /^[ \t]*(?:\r\n|\r|\n|$)/.test(text.slice(token.lastIndex))) {
+    // An explicit display owner with its own later closing delimiter keeps
+    // ambiguous contents together; otherwise recover on the physical line.
+    const remaining = text.slice(token.lastIndex).split(/\r?\n[ \t]*\r?\n|\r[ \t]*\r/)[0];
+    const displayOwnerCloses = /^\\{1,2}\[\]$/.test(top.type) &&
+      new RegExp(`(?<!\\\\)${'\\\\'.repeat(top.type.length - 2)}\\]`).test(remaining);
+    if (stack.length === 1 && mismatchedCloser && !displayOwnerCloses &&
+        !/[\r\n]/.test(text.slice(start, match.index))) {
       regions.push({start, end:token.lastIndex, ambiguous:true});
       stack = [];
       continue;

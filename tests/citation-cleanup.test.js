@@ -94,3 +94,15 @@ test('diagnostics protect problem numbers, indices, arrays, references and code'
   expect(archive(body)).toContain(body);
   expect(diagnoseSentenceSourceMarkers(body)).toEqual([]);
 });
+
+test('compact indices are not source notices', () => {
+  const body = 'Evaluate (values[2]).\nvalues[2]와 values[3]을 비교한다.';
+  expect(archive(body)).toContain(body);
+  expect(diagnoseSentenceSourceMarkers(body)).toEqual([]);
+});
+
+test('a reference-looking fenced example does not hide a math-adjacent candidate', () => {
+  const body = '$x$[1].\n\n```md\n[1]: example\n```';
+  expect(archive(body)).toContain(body);
+  expect(diagnoseSentenceSourceMarkers(body)).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
+});

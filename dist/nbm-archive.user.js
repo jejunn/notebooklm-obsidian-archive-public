@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4654 of the bundle below.
+// CONFIG starts at line 4668 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3345,6 +3345,17 @@ OTHER DEALINGS IN THE SOFTWARE.
   function diagnoseSentenceSourceMarkers(text) {
     const found = [];
     const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map((m) => m[1]));
+    const markdownEnv = {};
+    const protectedReferenceLines = new Set;
+    for (const token of markdownBlocks.parse(text, markdownEnv)) {
+      if (token.map && ["fence", "code_block", "html_block"].includes(token.type))
+        for (let line = token.map[0];line < token.map[1]; line += 1)
+          protectedReferenceLines.add(line);
+    }
+    const realReferences = new Set(text.split(/\r\n|\r|\n/).flatMap((line, index) => {
+      const match = /^[ \t]*\[(\d+)\]:/.exec(line);
+      return match && !protectedReferenceLines.has(index) ? [match[1]] : [];
+    }));
     processMathBlocks(text, (part, base) => {
       const regions = mathRegions(part);
       const verbs = [...part.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
@@ -3358,7 +3369,7 @@ OTHER DEALINGS IN THE SOFTWARE.
         const prefix = part.slice(0, offset).split(/\r\n|\r|\n/).at(-1);
         const suffix = part.slice(offset + match[0].length);
         const region = regions.find((r) => offset >= r.start && offset < r.end);
-        if (references.has(match[1]) || verbs.some((v) => offset >= v.index && offset < v.index + v[0].length))
+        if (realReferences.has(match[1]) || verbs.some((v) => offset >= v.index && offset < v.index + v[0].length))
           continue;
         if (region) {
           const before = part.slice(region.start, offset);
@@ -3370,8 +3381,9 @@ OTHER DEALINGS IN THE SOFTWARE.
         if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix))
           continue;
         const afterMath = regions.some((r) => r.end === offset && !r.ambiguous && !r.unclosed);
-        const beforeClose = /\p{L}/u.test(prefix) && /^\)/.test(suffix);
-        const beforeParticle = /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
+        const compactIndex = /[\p{L}\p{N}_]$/u.test(prefix);
+        const beforeClose = !compactIndex && /\p{L}/u.test(prefix) && /^\)/.test(suffix);
+        const beforeParticle = !compactIndex && /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
         if (afterMath || beforeClose || beforeParticle)
           add(offset);
       }
@@ -3604,7 +3616,9 @@ OTHER DEALINGS IN THE SOFTWARE.
       }
       const top = stack.at(-1);
       const mismatchedCloser = slash && !isOpen && top.type !== type || dollar && top.type !== type && top.type !== "$" && top.type !== "$$";
-      if (stack.length === 1 && mismatchedCloser && !/[\r\n]/.test(text.slice(start, match.index)) && /^[ \t]*(?:\r\n|\r|\n|$)/.test(text.slice(token.lastIndex))) {
+      const remaining = text.slice(token.lastIndex).split(/\r?\n[ \t]*\r?\n|\r[ \t]*\r/)[0];
+      const displayOwnerCloses = /^\\{1,2}\[\]$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
+      if (stack.length === 1 && mismatchedCloser && !displayOwnerCloses && !/[\r\n]/.test(text.slice(start, match.index))) {
         regions.push({ start, end: token.lastIndex, ambiguous: true });
         stack = [];
         continue;

@@ -79,3 +79,27 @@ $z + w$`;
   expect(convertAnswerLatexDelimiters(input)).toBe(output);
   expect(convertAnswerLatexDelimiters(output)).toBe(output);
 });
+
+test('multiline math owners retain row breaks, comments and ambiguous nested content', () => {
+  const matrix = String.raw`\[\begin{matrix} a\\]
+% $z &#43; w$
+b\end{matrix}\]`;
+  expect(convertLatexDelimiters(matrix)).toBe(matrix);
+  expect(convertAnswerLatexDelimiters(matrix)).toBe(matrix);
+  expect(diagnoseMath(matrix)).toEqual([]);
+  const ambiguous = String.raw`\[a\)
+$\\text{OH}$
+b\]`;
+  expect(convertLatexDelimiters(ambiguous)).toBe(ambiguous);
+  expect(convertAnswerLatexDelimiters(ambiguous)).toBe(ambiguous);
+  expect(diagnoseMath(ambiguous)).toEqual([{line:1, kind:'mixed-delimiter'}]);
+});
+
+test('recovery handles trailing punctuation, formatting and particles without swallowing healthy math', () => {
+  for (const [first, second] of [[String.raw`$x\].`, String.raw`\(y$.`], [String.raw`$x\]**`, String.raw`\(y$는`]]) {
+    const input = `${first}\n${second}\n$z &#43; w$`;
+    expect(diagnoseMath(input)).toEqual([{line:1, kind:'mixed-delimiter'}, {line:2, kind:'mixed-delimiter'}, {line:3, kind:'encoded-operator'}]);
+    expect(convertAnswerLatexDelimiters(input)).toBe(`${first}\n${second}\n$z + w$`);
+    expect(convertLatexDelimiters(input)).toBe(`${first}\n${second}\n$z + w$`);
+  }
+});
