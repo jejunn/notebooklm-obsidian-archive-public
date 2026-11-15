@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { normalizeTurns } from '../src/adapter.js';
-import { assembleFirstArchive } from '../src/markdown-assembler.js';
+import { assembleFirstArchive, diagnoseSentenceSourceMarkers } from '../src/markdown-assembler.js';
 
 function archive(answer, question = '페이지 설명') {
   return assembleFirstArchive([
@@ -80,4 +80,17 @@ test('synthetic archive removes the reviewed source markers without losing turns
   expect((markdown.match(/^### A$/gm) ?? []).length).toBe(87);
   expect(markdown.includes(String.raw`$\alpha$`)).toBe(true);
   expect(markdown.includes(String.raw`\left[\text{A/cm}^2\right]`)).toBe(true);
+});
+
+
+test('preserved ambiguous candidates report their actual lines', () => {
+  const body = "Intro\nEnergy $E=mc^2$[1].\n(Explanation [2])\n설명 [3]으로 이어진다.\n$E=mc^2\\text{ [4]}$\nEnergy $x$[5]. 그리고 설명 [6]으로 이어진다.";
+  expect(archive(body)).toContain(body);
+  expect(diagnoseSentenceSourceMarkers(body)).toEqual([2, 3, 4, 5, 6].map(line => ({ line, kind: 'ambiguous-source-marker' })));
+});
+
+test('diagnostics protect problem numbers, indices, arrays, references and code', () => {
+  const body = '문제 [4-36]을 푼다.\n$a[1]$와 $[1, 2]$\n배열 [1, 2]으로 구성.\nSee [1](https://example.com).\nReference [2]으로 설명.\n[2]: https://example.com\n`설명 [3]으로`\n```text\n설명 [4]으로\n```';
+  expect(archive(body)).toContain(body);
+  expect(diagnoseSentenceSourceMarkers(body)).toEqual([]);
 });
