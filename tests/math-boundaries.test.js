@@ -130,3 +130,16 @@ $z + w$`;
     expect(diagnoseMath(input)).toEqual([]);
   }
 });
+
+test('row breaks before right parentheses and brackets keep owned TeX comments intact', () => {
+  for (const glyph of [')', ']']) for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+    for (const [start, end] of [[String.raw`$x_{\substack{a`, String.raw`b}}$`], [String.raw`$\begin{matrix} a`, String.raw`b\end{matrix}$`]]) {
+      const input = start + '\\\\' + glyph + '\n' + comment + '\n' + end;
+      expect(convertLatexDelimiters(input)).toBe(input);
+      expect(convertAnswerLatexDelimiters(input)).toBe(input);
+      expect(diagnoseMath(input)).toEqual([]);
+    }
+  }
+  expect(convertLatexDelimiters(String.raw`\\(x\\)`)).toBe('$x$');
+  expect(convertLatexDelimiters(String.raw`\(x\)`)).toBe('$x$');
+});

@@ -402,7 +402,7 @@ function mathRegions(text) {
     }
     const top = stack.at(-1);
     // A double slash within a braced TeX argument is a row break; the
-    // following bracket is content rather than the surrounding delimiter.
+    // following bracket or parenthesis is content rather than the delimiter.
     let braceDepth = 0;
     const ownedPrefix = text.slice(start, match.index);
     for (let i = 0; i < ownedPrefix.length; i += 1) {
@@ -410,14 +410,14 @@ function mathRegions(text) {
       if (ownedPrefix[i] === '{') braceDepth += 1;
       else if (ownedPrefix[i] === '}') braceDepth = Math.max(0, braceDepth - 1);
     }
-    if (braceDepth > 0 && slash === '\\\\' && glyph === ']') {
+    if (braceDepth > 0 && slash === '\\\\' && (glyph === ']' || glyph === ')')) {
       top.after = token.lastIndex;
       continue;
     }
     // In a TeX environment, a double slash can be a row break followed by
-    // a literal bracket, even when it resembles a doubled display closer.
+    // a literal bracket or parenthesis, even when it resembles a closer.
     const environment = [...text.slice(start, match.index).matchAll(/(?<!\\)\\begin\s*\{([^{}]+)\}/g)].at(-1);
-    if (environment && slash === '\\\\' && glyph === ']' &&
+    if (environment && slash === '\\\\' && (glyph === ']' || glyph === ')') &&
         !text.slice(environment.index, match.index).includes(`\\end{${environment[1]}}`) &&
         text.slice(token.lastIndex).includes(`\\end{${environment[1]}}`)) {
       top.after = token.lastIndex;

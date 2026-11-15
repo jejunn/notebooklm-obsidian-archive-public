@@ -238,3 +238,16 @@ Math $a$[2] and $b\text{ [3]}$ remain.`;
     }
   }
 });
+
+test('save preserves row breaks before right parentheses and their TeX comments', async () => {
+  for (const comment of [String.raw`% $z &#43; w$`, String.raw`% $\\text{OH}$`]) {
+    for (const [start, end] of [[String.raw`$x_{\substack{a`, String.raw`b}}$`], [String.raw`$\begin{matrix} a`, String.raw`b\end{matrix}$`]]) {
+      const answer = start + '\\\\)' + '\n' + comment + '\n' + end;
+      const h = harness(null, {mode:'first'});
+      const candidate = turns.map((turn, i) => i === 1 ? {...turn, text:answer} : turn);
+      const result = await h.run({turns:candidate});
+      expect(h.content()).toContain(answer);
+      expect(result.mathDiagnostics).toEqual([]);
+    }
+  }
+});

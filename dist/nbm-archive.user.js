@@ -3629,12 +3629,12 @@ OTHER DEALINGS IN THE SOFTWARE.
         else if (ownedPrefix[i] === "}")
           braceDepth = Math.max(0, braceDepth - 1);
       }
-      if (braceDepth > 0 && slash === "\\\\" && glyph === "]") {
+      if (braceDepth > 0 && slash === "\\\\" && (glyph === "]" || glyph === ")")) {
         top.after = token.lastIndex;
         continue;
       }
       const environment = [...text.slice(start, match.index).matchAll(/(?<!\\)\\begin\s*\{([^{}]+)\}/g)].at(-1);
-      if (environment && slash === "\\\\" && glyph === "]" && !text.slice(environment.index, match.index).includes(`\\end{${environment[1]}}`) && text.slice(token.lastIndex).includes(`\\end{${environment[1]}}`)) {
+      if (environment && slash === "\\\\" && (glyph === "]" || glyph === ")") && !text.slice(environment.index, match.index).includes(`\\end{${environment[1]}}`) && text.slice(token.lastIndex).includes(`\\end{${environment[1]}}`)) {
         top.after = token.lastIndex;
         continue;
       }
