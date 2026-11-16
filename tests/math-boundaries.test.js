@@ -189,3 +189,24 @@ test('real whitespace-only physical lines stop environment ownership', () => {
     expect(convertAnswerLatexDelimiters(input)).toContain('$z + w$');
   }
 });
+
+test('comment and verb payload braces do not claim real doubled closers', () => {
+  for (const nl of ['\n','\r\n','\r']) for (const [open, close] of [[String.raw`\\(`, String.raw`\\)`], [String.raw`\\[`, String.raw`\\]`]]) {
+    for (const content of [String.raw`a % {`, String.raw`a \verb|{|`, String.raw`a \% text % {`]) {
+      const first = [open + content, 'b' + close, '$z &#43; w$'].join(nl);
+      const expected = first.replace('&#43;', '+');
+      expect(convertLatexDelimiters(first)).toBe(expected);
+      expect(convertAnswerLatexDelimiters(first)).toBe(expected);
+      expect(diagnoseMath(first)).toContainEqual({line:3,kind:'encoded-operator'});
+    }
+  }
+});
+
+test('literal closing braces do not release genuinely braced rows', () => {
+  for (const nl of ['\n','\r\n','\r']) for (const glyph of [')',']']) for (const content of [String.raw`a % }`, String.raw`a \verb|}|`]) {
+    const input = [String.raw`$x_{\substack{` + content, '\\\\' + glyph, '% $z &#43; w$', String.raw`b}}$`].join(nl);
+    expect(convertLatexDelimiters(input)).toBe(input);
+    expect(convertAnswerLatexDelimiters(input)).toBe(input);
+    expect(diagnoseMath(input)).toEqual([]);
+  }
+});

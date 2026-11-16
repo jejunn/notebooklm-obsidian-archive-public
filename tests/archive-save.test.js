@@ -275,3 +275,14 @@ test('first save preserves TeX row comments across physical newline formats', as
     }
   }
 });
+
+test('save resumes after a doubled closer despite literal comment and verb braces', async () => {
+  for (const nl of ['\n','\r\n','\r']) for (const [open, close] of [[String.raw`\\(`, String.raw`\\)`], [String.raw`\\[`, String.raw`\\]`]]) for (const content of [String.raw`a % {`, String.raw`a \verb|{|`]) {
+    const answer = [open + content, 'b' + close, '$z &#43; w$'].join(nl);
+    const h = harness(null, {mode:'first'});
+    const candidate = turns.map((turn, i) => i === 1 ? {...turn, text:answer} : turn);
+    const result = await h.run({turns:candidate});
+    expect(h.content()).toContain(answer.replace('&#43;', '+'));
+    expect(result.mathDiagnostics.some(item => item.kind === 'encoded-operator')).toBe(false);
+  }
+});

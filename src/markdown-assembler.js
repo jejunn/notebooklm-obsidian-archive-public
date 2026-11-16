@@ -488,7 +488,23 @@ function mathRegions(text) {
     let braceDepth = 0;
     const ownedPrefix = text.slice(start, match.index);
     for (let i = 0; i < ownedPrefix.length; i += 1) {
-      if (ownedPrefix[i] === '\\') { i += 1; continue; }
+      if (ownedPrefix[i] === '%') {
+        const end = ownedPrefix.slice(i).search(/[\r\n]/);
+        if (end < 0) break;
+        i += end - 1;
+        continue;
+      }
+      if (ownedPrefix[i] === '\\') {
+        const verb = /^\\verb\*?(?![A-Za-z])([^\r\n])/.exec(ownedPrefix.slice(i));
+        if (verb) {
+          const begin = i + verb[0].length;
+          const end = ownedPrefix.indexOf(verb[1], begin);
+          const lineEnd = ownedPrefix.slice(begin).search(/[\r\n]/);
+          if (end >= 0 && (lineEnd < 0 || end < begin + lineEnd)) { i = end; continue; }
+        }
+        i += 1;
+        continue;
+      }
       if (ownedPrefix[i] === '{') braceDepth += 1;
       else if (ownedPrefix[i] === '}') braceDepth = Math.max(0, braceDepth - 1);
     }

@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4790 of the bundle below.
+// CONFIG starts at line 4807 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3718,7 +3718,24 @@ OTHER DEALINGS IN THE SOFTWARE.
       let braceDepth = 0;
       const ownedPrefix = text.slice(start, match.index);
       for (let i = 0;i < ownedPrefix.length; i += 1) {
+        if (ownedPrefix[i] === "%") {
+          const end = ownedPrefix.slice(i).search(/[\r\n]/);
+          if (end < 0)
+            break;
+          i += end - 1;
+          continue;
+        }
         if (ownedPrefix[i] === "\\") {
+          const verb = /^\\verb\*?(?![A-Za-z])([^\r\n])/.exec(ownedPrefix.slice(i));
+          if (verb) {
+            const begin = i + verb[0].length;
+            const end = ownedPrefix.indexOf(verb[1], begin);
+            const lineEnd = ownedPrefix.slice(begin).search(/[\r\n]/);
+            if (end >= 0 && (lineEnd < 0 || end < begin + lineEnd)) {
+              i = end;
+              continue;
+            }
+          }
           i += 1;
           continue;
         }
