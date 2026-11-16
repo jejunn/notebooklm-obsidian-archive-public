@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4899 of the bundle below.
+// CONFIG starts at line 4924 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3353,31 +3353,46 @@ OTHER DEALINGS IN THE SOFTWARE.
     }
     return low - 1;
   }
-  function followsSpacedIndex(prefix) {
-    let i = prefix.length - 1;
-    if (prefix[i] !== " " && prefix[i] !== "\t")
+  function followsSpacedIndex(text, start, end) {
+    let i = end - 1;
+    if (text[i] !== " " && text[i] !== "\t")
       return false;
-    while (i >= 0 && (prefix[i] === " " || prefix[i] === "\t"))
+    while (i >= start && (text[i] === " " || text[i] === "\t"))
       i -= 1;
-    if (prefix[i] === "]") {
+    if (text[i] === "]") {
       let depth = 1;
-      while (--i >= 0 && depth) {
-        if (prefix[i] === "]")
+      while (--i >= start && depth) {
+        if (text[i] === "]")
           depth += 1;
-        else if (prefix[i] === "[")
+        else if (text[i] === "[")
           depth -= 1;
       }
       return depth === 0;
     }
-    if (prefix[i] === ")") {
+    if (text[i] === ")") {
       let depth = 1;
-      while (--i >= 0 && depth) {
-        if (prefix[i] === ")")
+      while (--i >= start && depth) {
+        if (text[i] === ")")
           depth += 1;
-        else if (prefix[i] === "(")
+        else if (text[i] === "(")
           depth -= 1;
       }
-      return depth === 0 && i >= 0 && /[\p{L}\p{N}_\])}]/u.test(prefix[i]);
+      return depth === 0 && i >= start && /[\p{L}\p{N}_\])}]/u.test(text[i]);
+    }
+    return false;
+  }
+  function endsWithRangeLabel(text, start, end) {
+    let i = end;
+    while (i > start && /\s/u.test(text[i - 1]))
+      i -= 1;
+    if (i > start && (text[i - 1] === ":" || text[i - 1] === "="))
+      i -= 1;
+    while (i > start && /\s/u.test(text[i - 1]))
+      i -= 1;
+    const labels = ["구간", "범위", "배열", "좌표", "벡터", "인덱스", "interval", "range", "array", "indice", "indices", "vector", "coordinate", "coordinates", "matrix"];
+    for (const label of labels) {
+      if (i - start >= label.length && text.slice(i - label.length, i).toLowerCase() === label)
+        return true;
     }
     return false;
   }
@@ -3416,7 +3431,7 @@ OTHER DEALINGS IN THE SOFTWARE.
           found.push({ line, kind: "ambiguous-source-marker" });
         }
       };
-      let regionIndex = 0, verbIndex = 0, lineStart = 0, lineCursor = 0;
+      let regionIndex = 0, verbIndex = 0, lineStart = 0, lineCursor = 0, lineHasLetter = false;
       for (const match of part.matchAll(/\[([1-9]\d*)\]/g)) {
         const offset = match.index;
         while (lineCursor < offset) {
@@ -3424,13 +3439,20 @@ OTHER DEALINGS IN THE SOFTWARE.
           if (width) {
             lineCursor += width;
             lineStart = lineCursor;
-          } else
-            lineCursor += 1;
+            lineHasLetter = false;
+          } else {
+            const point = part.codePointAt(lineCursor);
+            if (!lineHasLetter && /\p{L}/u.test(String.fromCodePoint(point)))
+              lineHasLetter = true;
+            lineCursor += point > 65535 ? 2 : 1;
+          }
         }
         while (regionIndex < regions.length && regions[regionIndex].end <= offset)
           regionIndex += 1;
         while (verbIndex < verbs.length && verbs[verbIndex].index + verbs[verbIndex][0].length <= offset)
           verbIndex += 1;
+        if (foundLines.has(offsetIndex(lineStarts, base + offset) + 1))
+          continue;
         const region = regions[regionIndex];
         const previous = regions[regionIndex - 1];
         const verb = verbs[verbIndex];
@@ -3451,11 +3473,14 @@ OTHER DEALINGS IN THE SOFTWARE.
         const beforeParticle = /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
         if (!afterMath && !beforeClose && !beforeParticle)
           continue;
-        const prefix = part.slice(lineStart, offset);
-        if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix))
+        if (endsWithRangeLabel(part, lineStart, offset))
           continue;
-        const compactIndex = /[\p{L}\p{N}_\])}]$/u.test(prefix) || followsSpacedIndex(prefix);
-        if (afterMath || !compactIndex && /\p{L}/u.test(prefix) && (beforeClose || beforeParticle))
+        if (afterMath) {
+          add(offset);
+          continue;
+        }
+        const compactIndex = offset > lineStart && /[\p{L}\p{N}_\])}]$/u.test(part.slice(Math.max(lineStart, offset - 2), offset)) || followsSpacedIndex(part, lineStart, offset);
+        if (!compactIndex && lineHasLetter && (beforeClose || beforeParticle))
           add(offset);
       }
       return part.replace(/([.!?。])([ \t]+)\[([1-9]\d*)\]([ \t]+)(?=[A-Z가-힣])/gu, (whole, punctuation, before, number, after, offset) => {

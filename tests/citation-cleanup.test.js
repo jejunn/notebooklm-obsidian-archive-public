@@ -155,3 +155,13 @@ test('physical lines and mixed sentence and math candidates deduplicate by line'
     expect(diagnoseSentenceSourceMarkers(input)).toEqual([{line:1,kind:'ambiguous-source-marker'},{line:2,kind:'ambiguous-source-marker'}]);
   }
 });
+
+test('dense single lines retain index exclusions and deduplicate candidates', () => {
+  expect(diagnoseSentenceSourceMarkers('Evaluate (table[index[0]] [2]). '.repeat(200))).toEqual([]);
+  expect(diagnoseSentenceSourceMarkers('Energy $x$[2]. '.repeat(200))).toEqual([{line:1,kind:'ambiguous-source-marker'}]);
+  expect(diagnoseSentenceSourceMarkers('배열 [2]와 table[index[0]] [2]을 비교. '.repeat(200))).toEqual([]);
+  for (const input of ['배열 [2]와 이어진다.', 'prefixarray : [2]와 이어진다.', '설명 [2]으로 이어진다.', '(Explanation [2])']) {
+    const expected = input.startsWith('설명') || input.startsWith('(Explanation') ? [{line:1,kind:'ambiguous-source-marker'}] : [];
+    expect(diagnoseSentenceSourceMarkers(input)).toEqual(expected);
+  }
+});

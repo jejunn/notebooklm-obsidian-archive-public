@@ -309,3 +309,12 @@ test('saved spaced nested and call indices do not generate source notices', asyn
     expect(result.mathDiagnostics).toEqual([]);
   }
 });
+
+test('dense single-line indices and citations preserve saved bytes and notice counts', async () => {
+  for (const [answer, count] of [['Evaluate (table[index[0]] [2]). '.repeat(200), 0], ['Energy $x$[2]. '.repeat(200), 1]]) {
+    const h = harness(null, {mode:'first'});
+    const result = await h.run({turns:turns.map((turn, i) => i === 1 ? {...turn,text:answer} : turn)});
+    expect(h.content()).toContain(answer.trim());
+    expect(result.mathDiagnostics).toHaveLength(count);
+  }
+});
