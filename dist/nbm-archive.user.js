@@ -35,7 +35,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 // Choose course, lecture, and first/review mode in the archive dialog.
 // The notebook URL supplies its ID; confirm the recent conversation candidate.
 // Uncheck validation-only in the dialog to save to Obsidian.
-// CONFIG starts at line 4807 of the bundle below.
+// CONFIG starts at line 4824 of the bundle below.
 // ---------------------------------------------------------------------------
 (() => {
   var __create = Object.create;
@@ -3376,7 +3376,7 @@ OTHER DEALINGS IN THE SOFTWARE.
         if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix))
           continue;
         const afterMath = regions.some((r) => r.end === offset && !r.ambiguous && !r.unclosed);
-        const compactIndex = /[\p{L}\p{N}_\])}]$/u.test(prefix);
+        const compactIndex = /[\p{L}\p{N}_\])}]$/u.test(prefix) || /\[[^\[\]\r\n]+\][ \t]+$/u.test(prefix);
         const beforeClose = !compactIndex && /\p{L}/u.test(prefix) && /^\)/.test(suffix);
         const beforeParticle = !compactIndex && /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
         if (afterMath || beforeClose || beforeParticle)
@@ -3407,6 +3407,13 @@ OTHER DEALINGS IN THE SOFTWARE.
   function convertAnswerLatexDelimiters(text) {
     return processMathBlocks(text, (part) => convertMath(part, true), true);
   }
+  function findTexLiteralEnd(text, environment, cursor) {
+    const end = `\\end{${environment}}`;
+    let index = text.indexOf(end, cursor);
+    while (index > 0 && text[index - 1] === "\\")
+      index = text.indexOf(end, index + end.length);
+    return index < 0 ? -1 : index + end.length;
+  }
   function texLiteralLines(lines) {
     const literalLines = new Set;
     let environment = null;
@@ -3416,13 +3423,10 @@ OTHER DEALINGS IN THE SOFTWARE.
       const startPattern = /(?<!\\)\\begin\s*\{(verbatim\*?|Verbatim\*?)\}/g;
       while (cursor < lines[line].length) {
         if (environment) {
-          const end = `\\end{${environment}}`;
-          let index = lines[line].indexOf(end, cursor);
-          while (index > 0 && lines[line][index - 1] === "\\")
-            index = lines[line].indexOf(end, index + end.length);
-          if (index < 0)
+          const end = findTexLiteralEnd(lines[line], environment, cursor);
+          if (end < 0)
             break;
-          cursor = index + end.length;
+          cursor = end;
           environment = null;
         } else {
           startPattern.lastIndex = cursor;
@@ -3607,13 +3611,10 @@ OTHER DEALINGS IN THE SOFTWARE.
         const command = /^\\(begin|end)\s*\{([^{}]+)\}/.exec(text.slice(i));
         if (command && depth === 0) {
           if (command[1] === "begin" && /^(?:verbatim\*?|Verbatim\*?)$/.test(command[2])) {
-            const end = `\\end{${command[2]}}`;
-            let index = text.indexOf(end, i + command[0].length);
-            while (index > 0 && text[index - 1] === "\\")
-              index = text.indexOf(end, index + end.length);
-            if (index < 0 || i < row && index >= row)
+            const end = findTexLiteralEnd(text, command[2], i + command[0].length);
+            if (end < 0 || i < row && end > row)
               return false;
-            i = index + end.length;
+            i = end;
             continue;
           }
           if (command[1] === "begin")
@@ -3715,52 +3716,68 @@ OTHER DEALINGS IN THE SOFTWARE.
         continue;
       }
       const top = stack.at(-1);
-      let braceDepth = 0;
-      const ownedPrefix = text.slice(start, match.index);
-      for (let i = 0;i < ownedPrefix.length; i += 1) {
-        if (ownedPrefix[i] === "%") {
-          const end = ownedPrefix.slice(i).search(/[\r\n]/);
-          if (end < 0)
-            break;
-          i += end - 1;
-          continue;
-        }
-        if (ownedPrefix[i] === "\\") {
-          const verb = /^\\verb\*?(?![A-Za-z])([^\r\n])/.exec(ownedPrefix.slice(i));
-          if (verb) {
-            const begin = i + verb[0].length;
-            const end = ownedPrefix.indexOf(verb[1], begin);
-            const lineEnd = ownedPrefix.slice(begin).search(/[\r\n]/);
-            if (end >= 0 && (lineEnd < 0 || end < begin + lineEnd)) {
-              i = end;
+      if (slash === "\\\\" && (glyph === "]" || glyph === ")")) {
+        let braceDepth = 0;
+        const ownedPrefix = text.slice(start, match.index);
+        for (let i = 0;i < ownedPrefix.length; i += 1) {
+          if (ownedPrefix[i] === "%") {
+            const end = ownedPrefix.slice(i).search(/[\r\n]/);
+            if (end < 0)
+              break;
+            i += end - 1;
+            continue;
+          }
+          if (ownedPrefix[i] === "\\") {
+            const literal = /^\\begin\s*\{(verbatim\*?|Verbatim\*?)\}/.exec(ownedPrefix.slice(i));
+            if (literal) {
+              const end = findTexLiteralEnd(ownedPrefix, literal[1], i + literal[0].length);
+              if (end < 0)
+                break;
+              i = end - 1;
               continue;
             }
+            const verb = /^\\verb\*?(?![A-Za-z])([^\r\n])/.exec(ownedPrefix.slice(i));
+            if (verb) {
+              const begin = i + verb[0].length;
+              const end = ownedPrefix.indexOf(verb[1], begin);
+              const lineEnd = ownedPrefix.slice(begin).search(/[\r\n]/);
+              if (end >= 0 && (lineEnd < 0 || end < begin + lineEnd)) {
+                i = end;
+                continue;
+              }
+            }
+            i += 1;
+            continue;
           }
-          i += 1;
+          if (ownedPrefix[i] === "{")
+            braceDepth += 1;
+          else if (ownedPrefix[i] === "}")
+            braceDepth = Math.max(0, braceDepth - 1);
+        }
+        if (braceDepth > 0 && slash === "\\\\" && (glyph === "]" || glyph === ")")) {
+          top.after = token.lastIndex;
           continue;
         }
-        if (ownedPrefix[i] === "{")
-          braceDepth += 1;
-        else if (ownedPrefix[i] === "}")
-          braceDepth = Math.max(0, braceDepth - 1);
-      }
-      if (braceDepth > 0 && slash === "\\\\" && (glyph === "]" || glyph === ")")) {
-        top.after = token.lastIndex;
-        continue;
-      }
-      if (slash === "\\\\" && (glyph === "]" || glyph === ")") && hasClosingTexEnvironment(text, start, match.index)) {
-        top.after = token.lastIndex;
-        continue;
+        if (slash === "\\\\" && (glyph === "]" || glyph === ")") && hasClosingTexEnvironment(text, start, match.index)) {
+          top.after = token.lastIndex;
+          continue;
+        }
       }
       const mismatchedCloser = slash && !isOpen && top.type !== type || dollar && top.type !== type && top.type !== "$" && top.type !== "$$";
-      const remaining = beforeBlankLine(text.slice(token.lastIndex));
-      const displayOwnerCloses = top.type === "$$" && /(?<![\\$])\$\$(?!\$)/.test(remaining) || /^\\{1,2}\[\]$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
-      const sameLine = remaining.split(/[\r\n]/, 1)[0];
-      const sameLineOwnerCloses = top.type === "$" ? /(?<![\\$])\$(?!\$)/.test(sameLine) : /^\\{1,2}\(\)$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\)`).test(sameLine);
-      if (stack.length === 1 && mismatchedCloser && !displayOwnerCloses && !sameLineOwnerCloses && !/[\r\n]/.test(text.slice(start, match.index))) {
-        regions.push({ start, end: token.lastIndex, ambiguous: true });
-        stack = [];
-        continue;
+      if (stack.length === 1 && mismatchedCloser && !/[\r\n]/.test(text.slice(start, match.index))) {
+        const suffix = text.slice(token.lastIndex);
+        const sameLine = suffix.split(/[\r\n]/, 1)[0];
+        const sameLineOwnerCloses = top.type === "$" ? /(?<![\\$])\$(?!\$)/.test(sameLine) : /^\\{1,2}\(\)$/.test(top.type) && new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\)`).test(sameLine);
+        let displayOwnerCloses = false;
+        if (top.type === "$$" || /^\\{1,2}\[\]$/.test(top.type)) {
+          const remaining = beforeBlankLine(suffix);
+          displayOwnerCloses = top.type === "$$" ? /(?<![\\$])\$\$(?!\$)/.test(remaining) : new RegExp(`(?<!\\\\)${"\\\\".repeat(top.type.length - 2)}\\]`).test(remaining);
+        }
+        if (!displayOwnerCloses && !sameLineOwnerCloses) {
+          regions.push({ start, end: token.lastIndex, ambiguous: true });
+          stack = [];
+          continue;
+        }
       }
       if (dollar && top.type === type || slash && !isOpen && top.type === type) {
         stack.pop();

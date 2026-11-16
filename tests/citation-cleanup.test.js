@@ -134,3 +134,8 @@ test('escaped verbatim end does not expose a fake reference definition', () => {
   expect(diagnoseSentenceSourceMarkers(body)).toEqual([{line:1, kind:'ambiguous-source-marker'}]);
   expect(archive(body)).toContain(body);
 });
+
+test('spaced chained subscripts are not source candidates while prose remains eligible', () => {
+  expect(diagnoseSentenceSourceMarkers('Evaluate (table[i] [2]).')).toEqual([]);
+  expect(diagnoseSentenceSourceMarkers('(Explanation [2])')).toEqual([{line:1,kind:'ambiguous-source-marker'}]);
+});

@@ -210,3 +210,13 @@ test('literal closing braces do not release genuinely braced rows', () => {
     expect(diagnoseMath(input)).toEqual([]);
   }
 });
+
+test('literal environments do not hide doubled closers from following math', () => {
+  for (const nl of ['\n','\r\n','\r']) for (const [open,close] of [[String.raw`\\(`,String.raw`\\)`],[String.raw`\\[`,String.raw`\\]`]]) {
+    const input = [open + 'a',String.raw`\begin{verbatim}`,'{',String.raw`\end{verbatim}`,'b' + close,'$z &#43; w$'].join(nl);
+    const marker = open.endsWith('(') ? '$' : '$$';
+    const expected = [marker + 'a',String.raw`\begin{verbatim}`,'{',String.raw`\end{verbatim}`,'b' + marker,'$z + w$'].join(nl);
+    expect(convertLatexDelimiters(input)).toBe(expected);
+    expect(diagnoseMath(input)).toContainEqual({line:6,kind:'encoded-operator'});
+  }
+});

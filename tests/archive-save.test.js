@@ -286,3 +286,16 @@ test('save resumes after a doubled closer despite literal comment and verb brace
     expect(result.mathDiagnostics.some(item => item.kind === 'encoded-operator')).toBe(false);
   }
 });
+
+test('question save converts math after a literal environment and its doubled closer', async () => {
+  for (const nl of ['\n','\r\n','\r']) for (const [open,close] of [[String.raw`\\(`,String.raw`\\)`],[String.raw`\\[`,String.raw`\\]`]]) {
+    const input = [open + 'a',String.raw`\begin{verbatim}`,'{',String.raw`\end{verbatim}`,'b' + close,'$z &#43; w$'].join(nl);
+    const h = harness(null, {mode:'first'});
+    const candidate = turns.map((turn, i) => i === 0 ? {...turn, text:input} : turn);
+    const result = await h.run({turns:candidate});
+    const marker = open.endsWith('(') ? '$' : '$$';
+    const expected = [marker + 'a',String.raw`\begin{verbatim}`,'{',String.raw`\end{verbatim}`,'b' + marker,'$z + w$'].join(nl);
+    expect(h.content()).toContain(expected);
+    expect(result.mathDiagnostics).toEqual([]);
+  }
+});
