@@ -299,3 +299,13 @@ test('question save converts math after a literal environment and its doubled cl
     expect(result.mathDiagnostics).toEqual([]);
   }
 });
+
+test('saved spaced nested and call indices do not generate source notices', async () => {
+  for (const input of ['Evaluate (table[index[0]] [2]).','Evaluate (values() [2]).','다음 값은 table[index[0]] [2]와 같다.']) {
+    const h = harness(null, {mode:'first'});
+    const candidate = turns.map((turn, i) => i === 1 ? {...turn,text:input} : turn);
+    const result = await h.run({turns:candidate});
+    expect(h.content()).toContain(input);
+    expect(result.mathDiagnostics).toEqual([]);
+  }
+});

@@ -118,10 +118,58 @@ const INLINE_MATH = /(?<!\\)(\\{1,2})\(([\s\S]*?)(?<!\\)\1\)/g;
  * @param {string} text
  * @returns {string} the same text with `\(...\)` and `\[...\]` re-delimited
  */
+// Binary search over sorted source offsets.
+function offsetIndex(starts, offset) {
+  let low = 0, high = starts.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (starts[mid] <= offset) low = mid + 1;
+    else high = mid;
+  }
+  return low - 1;
+}
+
+// Recognize a spaced subscript or an attached call without interpreting prose.
+function followsSpacedIndex(prefix) {
+  let i = prefix.length - 1;
+  if (prefix[i] !== ' ' && prefix[i] !== '\t') return false;
+  while (i >= 0 && (prefix[i] === ' ' || prefix[i] === '\t')) i -= 1;
+  if (prefix[i] === ']') {
+    let depth = 1;
+    while (--i >= 0 && depth) {
+      if (prefix[i] === ']') depth += 1;
+      else if (prefix[i] === '[') depth -= 1;
+    }
+    return depth === 0;
+  }
+  if (prefix[i] === ')') {
+    let depth = 1;
+    while (--i >= 0 && depth) {
+      if (prefix[i] === ')') depth += 1;
+      else if (prefix[i] === '(') depth -= 1;
+    }
+    return depth === 0 && i >= 0 && /[\p{L}\p{N}_\])}]/u.test(prefix[i]);
+  }
+  return false;
+}
+
 export function diagnoseSentenceSourceMarkers(text) {
   const found = [];
+  const foundLines = new Set();
   const references = new Set([...text.matchAll(/^[ \t]*\[(\d+)\]:/gm)].map(m => m[1]));
-  // Share literal boundaries with the transform before resolving references.
+  const lineStarts = [0];
+  for (const match of text.matchAll(/\r\n|\r|\n/g)) lineStarts.push(match.index + match[0].length);
+  // Preserve the legacy sentence rule's paragraph splitting and marker count.
+  const paragraphs = [];
+  let paragraphStart = 0;
+  for (const match of text.matchAll(/\r?\n[ \t]*\r?\n/g)) {
+    paragraphs.push({start:paragraphStart, end:match.index});
+    paragraphStart = match.index + match[0].length;
+  }
+  paragraphs.push({start:paragraphStart, end:text.length});
+  for (const paragraph of paragraphs)
+    paragraph.count = [...text.slice(paragraph.start, paragraph.end).matchAll(/\[\d+(?:[,-]\s*\d+)*\]/g)].length;
+  const paragraphStarts = paragraphs.map(p => p.start);
   const referenceLines = text.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g) ?? [];
   const literalLines = texLiteralLines(referenceLines);
   const referenceText = referenceLines.map((line, index) =>
@@ -132,41 +180,52 @@ export function diagnoseSentenceSourceMarkers(text) {
   processMathBlocks(text, (part, base) => {
     const regions = mathRegions(part);
     const verbs = [...part.matchAll(/(?<!\\)\\verb\*?(?![A-Za-z])([^\r\n])[^\r\n]*?(?:\1|$)/gm)];
+    const regionStarts = regions.map(r => r.start);
+    const verbStarts = verbs.map(v => v.index);
     const add = offset => {
-      const line = (text.slice(0, base + offset).match(/\r\n|\r|\n/g) ?? []).length + 1;
-      if (!found.some(item => item.line === line && item.kind === 'ambiguous-source-marker'))
-        found.push({ line, kind: 'ambiguous-source-marker' });
+      const line = offsetIndex(lineStarts, base + offset) + 1;
+      if (!foundLines.has(line)) { foundLines.add(line); found.push({line,kind:'ambiguous-source-marker'}); }
     };
-    // New candidates remain untouched by cleanup. Scan each occurrence,
-    // independently of the paragraph-wide guard for sentence candidates.
+    let regionIndex = 0, verbIndex = 0, lineStart = 0, lineCursor = 0;
     for (const match of part.matchAll(/\[([1-9]\d*)\]/g)) {
       const offset = match.index;
-      const prefix = part.slice(0, offset).split(/\r\n|\r|\n/).at(-1);
-      const suffix = part.slice(offset + match[0].length);
-      const region = regions.find(r => offset >= r.start && offset < r.end);
-      if (realReferences.has(match[1]) || verbs.some(v => offset >= v.index && offset < v.index + v[0].length)) continue;
-      if (region) {
-        const before = part.slice(region.start, offset);
-        const after = part.slice(offset + match[0].length, region.end);
-        if (/\\text\{[ \t]*$/.test(before) && /^\}[ \t]*(?:\${1,2}|\\{1,2}[)\]])$/.test(after)) add(offset);
+      while (lineCursor < offset) {
+        const width = lineEndingWidth(part, lineCursor);
+        if (width) { lineCursor += width; lineStart = lineCursor; } else lineCursor += 1;
+      }
+      while (regionIndex < regions.length && regions[regionIndex].end <= offset) regionIndex += 1;
+      while (verbIndex < verbs.length && verbs[verbIndex].index + verbs[verbIndex][0].length <= offset) verbIndex += 1;
+      const region = regions[regionIndex];
+      const previous = regions[regionIndex - 1];
+      const verb = verbs[verbIndex];
+      if (realReferences.has(match[1]) || (verb && offset >= verb.index && offset < verb.index + verb[0].length)) continue;
+      if (region && offset >= region.start && offset < region.end) {
+        if (region.sourceTail === undefined) {
+          const tail = /\\text\{[ \t]*\[([1-9]\d*)\]\}[ \t]*(?:\${1,2}|\\{1,2}[)\]])$/.exec(part.slice(region.start, region.end));
+          region.sourceTail = tail ? region.start + tail.index + tail[0].indexOf('[') : -1;
+        }
+        if (region.sourceTail === offset) add(offset);
         continue;
       }
+      const afterMath = previous && previous.end === offset && !previous.ambiguous && !previous.unclosed;
+      const suffix = part.slice(offset + match[0].length, offset + match[0].length + 4);
+      const beforeClose = suffix.startsWith(')');
+      const beforeParticle = /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
+      if (!afterMath && !beforeClose && !beforeParticle) continue;
+      const prefix = part.slice(lineStart, offset);
       if (/(?:구간|범위|배열|좌표|벡터|인덱스|interval|range|array|indices?|vector|coordinates?|matrix)\s*[:=]?\s*$/i.test(prefix)) continue;
-      const afterMath = regions.some(r => r.end === offset && !r.ambiguous && !r.unclosed);
-      const compactIndex = /[\p{L}\p{N}_\])}]$/u.test(prefix) || /\[[^\[\]\r\n]+\][ \t]+$/u.test(prefix);
-      const beforeClose = !compactIndex && /\p{L}/u.test(prefix) && /^\)/.test(suffix);
-      const beforeParticle = !compactIndex && /\p{L}/u.test(prefix) && /^(?:으로|로|은|는|이|가|을|를|의|에|와|과|에서|까지|부터)/u.test(suffix);
-      if (afterMath || beforeClose || beforeParticle) add(offset);
+      const compactIndex = /[\p{L}\p{N}_\])}]$/u.test(prefix) || followsSpacedIndex(prefix);
+      if (afterMath || (!compactIndex && /\p{L}/u.test(prefix) && (beforeClose || beforeParticle))) add(offset);
     }
     return part.replace(/([.!?。])([ \t]+)\[([1-9]\d*)\]([ \t]+)(?=[A-Z가-힣])/gu, (whole, punctuation, before, number, after, offset) => {
       const absolute = base + offset;
-      const lineStart = Math.max(text.lastIndexOf('\n', absolute - 1), text.lastIndexOf('\r', absolute - 1)) + 1;
-      const beforeParagraph = text.slice(0, absolute).split(/\r?\n[ \t]*\r?\n/).at(-1);
-      const afterParagraph = text.slice(absolute).split(/\r?\n[ \t]*\r?\n/)[0];
-      const paragraph = beforeParagraph + afterParagraph;
-      if (references.has(number) || [...paragraph.matchAll(/\[\d+(?:[,-]\s*\d+)*\]/g)].length !== 1) return whole;
+      const paragraph = paragraphs[offsetIndex(paragraphStarts, absolute)];
+      if (references.has(number) || paragraph.count !== 1) return whole;
+      const lineStart = lineStarts[offsetIndex(lineStarts, absolute)];
       if (!/\p{L}.{5,}/u.test(text.slice(lineStart, absolute))) return whole;
-      if (regions.some(region => region.start < offset + whole.length && region.end > offset) || verbs.some(v => v.index < offset + whole.length && v.index + v[0].length > offset)) return whole;
+      const ri = offsetIndex(regionStarts, offset + whole.length - 1);
+      const vi = offsetIndex(verbStarts, offset + whole.length - 1);
+      if ((ri >= 0 && regions[ri].end > offset) || (vi >= 0 && verbs[vi].index + verbs[vi][0].length > offset)) return whole;
       add(offset);
       return whole;
     });

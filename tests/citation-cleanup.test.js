@@ -139,3 +139,19 @@ test('spaced chained subscripts are not source candidates while prose remains el
   expect(diagnoseSentenceSourceMarkers('Evaluate (table[i] [2]).')).toEqual([]);
   expect(diagnoseSentenceSourceMarkers('(Explanation [2])')).toEqual([{line:1,kind:'ambiguous-source-marker'}]);
 });
+
+test('nested and call indices with spacing are not source notices', () => {
+  for (const input of ['Evaluate (table[index[0]] [2]).', 'Evaluate (values() [2]).', '다음 값은 table[index[0]] [2]와 같다.']) {
+    expect(diagnoseSentenceSourceMarkers(input)).toEqual([]);
+    expect(archive(input)).toContain(input);
+  }
+  for (const input of ['(Explanation [2])', '설명 [1]으로 이어진다.', 'Energy $x$[2].', String.raw`$x\text{ [2]}$`])
+    expect(diagnoseSentenceSourceMarkers(input)).toEqual([{line:1,kind:'ambiguous-source-marker'}]);
+});
+
+test('physical lines and mixed sentence and math candidates deduplicate by line', () => {
+  for (const nl of ['\n','\r\n','\r']) {
+    const input = ['A complete sentence ends here. [1] Another sentence follows here. Energy $x$[2].','설명 [3]으로 이어진다.','`설명 [4]으로`', '문제 [4-36]'].join(nl);
+    expect(diagnoseSentenceSourceMarkers(input)).toEqual([{line:1,kind:'ambiguous-source-marker'},{line:2,kind:'ambiguous-source-marker'}]);
+  }
+});
